@@ -1,4 +1,4 @@
-import { User, Project, TimeEntry, AuthToken, ProjectMember, ProjectInvitation, BudgetTransaction, ProfitShare, ProjectRole, PayPeriod, Earnings, ProjectFinancialSummary, UserFinancialSummary } from "./types.ts";
+import { User, Project, TimeEntry, AuthToken, ProjectMember, ProjectInvitation, BudgetTransaction, ProfitShare, ProjectRole, PayPeriod, Earnings, ProjectFinancialSummary, UserFinancialSummary, ActiveTimer, ActiveTimerUserIndex, ActiveTimerProjectIndex } from "./types.ts";
 
 // Initialize the KV store
 // Use in-memory store for tests, default store for development/production
@@ -499,4 +499,91 @@ export async function updateProjectMemberFinancials(
   member.updatedAt = new Date().toISOString();
   
   await addProjectMember(member);
+}
+
+// Active timer operations
+export async function startTimer(timer: ActiveTimer): Promise<void> {
+  const timerKey = createKey(["active_timer", timer.id]);
+  const userIndexKey = createKey(["active_timer_user", timer.userId, timer.id]);
+  const projectIndexKey = createKey(["active_timer_project", timer.projectId, timer.id]);
+
+  // Check if user already has an active timer
+  const existingTimer = await getActiveTimerByUser(timer.userId);
+  if (existingTimer) {
+    throw new Error("User already has an active timer");
+  }
+
+  const atomic = kv.atomic();
+  atomic
+    .set(timerKey, timer)
+    .set(userIndexKey, { timerId: timer.id })
+    .set(projectIndexKey, { timerId: timer.id });
+
+  const result = await atomic.commit();
+  if (!result.ok) throw new Error("Failed to start timer");
+}
+
+export async function stopTimer(userId: string): Promise<TimeEntry> {
+  const timer = await getActiveTimerByUser(userId);
+  if (!timer) {
+    throw new Error("No active timer found");
+  }
+
+  // Calculate duration and create time entry
+  const startTime = new Date(timer.startedAt);
+  const endTime = new Date();
+  const hours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60); // Convert ms to hours
+
+  const timeEntry: TimeEntry = {
+    id: crypto.randomUUID(),
+    projectId: timer.projectId,
+    userId: timer.userId,
+    description: timer.description,
+    hours,
+    date: startTime.toISOString(),
+    costImpact: 0, // Will be calculated in createTimeEntry
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  // Delete timer and create time entry atomically
+  const atomic = kv.atomic();
+  atomic
+    .delete(createKey(["active_timer", timer.id]))
+    .delete(createKey(["active_timer_user", timer.userId, timer.id]))
+    .delete(createKey(["active_timer_project", timer.projectId, timer.id]));
+
+  const result = await atomic.commit();
+  if (!result.ok) throw new Error("Failed to stop timer");
+
+  // Create the time entry
+  await createTimeEntry(timeEntry);
+  return timeEntry;
+}
+
+export async function getActiveTimerByUser(userId: string): Promise<ActiveTimer | null> {
+  const prefix = createKey(["active_timer_user", userId]);
+  
+  for await (const entry of kv.list<ActiveTimerUserIndex>({ prefix })) {
+    const timer = await kv.get<ActiveTimer>(createKey(["active_timer", entry.value.timerId]));
+    if (timer.value) {
+      return timer.value;
+    }
+  }
+  
+  return null;
+}
+
+export async function getActiveTimersByProject(projectId: string): Promise<ActiveTimer[]> {
+  const prefix = createKey(["active_timer_project", projectId]);
+  const timers: ActiveTimer[] = [];
+  
+  for await (const entry of kv.list<ActiveTimerProjectIndex>({ prefix })) {
+    const timer = await kv.get<ActiveTimer>(createKey(["active_timer", entry.value.timerId]));
+    if (timer.value) {
+      timers.push(timer.value);
+    }
+  }
+  
+  return timers;
 } 

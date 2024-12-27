@@ -206,4 +206,20 @@ export interface UserFinancialSummary {
   totalEarnings: number;
   createdAt: string;
   updatedAt: string;
-} 
+}
+
+export interface ActiveTimer {
+  id: string;
+  userId: string;
+  projectId: string;
+  description: string;
+  startedAt: string;
+  updatedAt: string;
+}
+
+// KV Schema types
+export type KvActiveTimer = ActiveTimer;
+
+// Index types for querying
+export type ActiveTimerUserIndex = { timerId: string };
+export type ActiveTimerProjectIndex = { timerId: string }; 

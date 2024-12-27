@@ -21,6 +21,10 @@ import {
   createEarnings,
   createUserFinancialSummary,
   createProjectFinancialSummary,
+  startTimer,
+  stopTimer,
+  getActiveTimerByUser,
+  getActiveTimersByProject,
 } from "./db.ts";
 import {
   User,
@@ -37,6 +41,7 @@ import {
   Earnings,
   ProjectFinancialSummary,
   UserFinancialSummary,
+  ActiveTimer,
 } from "./types.ts";
 import { crypto } from "std/crypto/mod.ts";
 import {
@@ -909,6 +914,187 @@ async function handleGetProjectFinancials(req: Request): Promise<Response> {
   }
 }
 
+async function handleStartTimer(req: Request): Promise<Response> {
+  const user = await authenticate(req);
+  if (!user) {
+    return new Response(
+      JSON.stringify(createResponse(null, "Unauthorized")),
+      { status: Status.Unauthorized }
+    );
+  }
+
+  try {
+    const { projectId, description } = await req.json();
+    const timer: ActiveTimer = {
+      id: crypto.randomUUID(),
+      userId: user.id,
+      projectId,
+      description,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await startTimer(timer);
+
+    return new Response(
+      JSON.stringify(createResponse(timer)),
+      { status: Status.Created }
+    );
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    return new Response(
+      JSON.stringify(createResponse(null, errorMessage)),
+      { status: Status.InternalServerError }
+    );
+  }
+}
+
+async function handleStopTimer(req: Request): Promise<Response> {
+  const user = await authenticate(req);
+  if (!user) {
+    return new Response(
+      JSON.stringify(createResponse(null, "Unauthorized")),
+      { status: Status.Unauthorized }
+    );
+  }
+
+  try {
+    const timeEntry = await stopTimer(user.id);
+    return new Response(
+      JSON.stringify(createResponse(timeEntry)),
+      { status: Status.OK }
+    );
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    return new Response(
+      JSON.stringify(createResponse(null, errorMessage)),
+      { status: Status.InternalServerError }
+    );
+  }
+}
+
+async function handleGetActiveTimer(req: Request): Promise<Response> {
+  const user = await authenticate(req);
+  if (!user) {
+    return new Response(
+      JSON.stringify(createResponse(null, "Unauthorized")),
+      { status: Status.Unauthorized }
+    );
+  }
+
+  try {
+    const timer = await getActiveTimerByUser(user.id);
+    if (!timer) {
+      return new Response(
+        JSON.stringify(createResponse(null, "No active timer found")),
+        { status: Status.NotFound }
+      );
+    }
+
+    // Calculate current duration and earnings
+    const startTime = new Date(timer.startedAt);
+    const now = new Date();
+    const hours = (now.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+    
+    // Get project member to calculate earnings
+    const member = await getProjectMember(timer.projectId, user.id);
+    if (!member) {
+      throw new Error("User is not a member of this project");
+    }
+
+    const currentEarnings = hours * member.hourlyRate;
+
+    // Get project budget info
+    const project = await getProjectById(timer.projectId);
+    if (!project) {
+      throw new Error("Project not found");
+    }
+
+    const response = {
+      timer,
+      currentStats: {
+        hours,
+        earnings: currentEarnings,
+        projectBudgetRemaining: project.remainingBudget - currentEarnings,
+      },
+    };
+
+    return new Response(
+      JSON.stringify(createResponse(response)),
+      { status: Status.OK }
+    );
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    return new Response(
+      JSON.stringify(createResponse(null, errorMessage)),
+      { status: Status.InternalServerError }
+    );
+  }
+}
+
+async function handleGetProjectActiveTimers(req: Request): Promise<Response> {
+  const user = await authenticate(req);
+  if (!user) {
+    return new Response(
+      JSON.stringify(createResponse(null, "Unauthorized")),
+      { status: Status.Unauthorized }
+    );
+  }
+
+  try {
+    const url = new URL(req.url);
+    const projectId = url.searchParams.get("projectId");
+    if (!projectId) {
+      return new Response(
+        JSON.stringify(createResponse(null, "Project ID is required")),
+        { status: Status.BadRequest }
+      );
+    }
+
+    // Check if user is project member
+    const member = await getProjectMember(projectId, user.id);
+    if (!member) {
+      return new Response(
+        JSON.stringify(createResponse(null, "You are not a member of this project")),
+        { status: Status.Forbidden }
+      );
+    }
+
+    const timers = await getActiveTimersByProject(projectId);
+
+    // Calculate current stats for each timer
+    const timersWithStats = await Promise.all(timers.map(async (timer) => {
+      const startTime = new Date(timer.startedAt);
+      const now = new Date();
+      const hours = (now.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+      
+      const member = await getProjectMember(timer.projectId, timer.userId);
+      if (!member) {
+        throw new Error(`User ${timer.userId} is not a member of project ${timer.projectId}`);
+      }
+
+      return {
+        timer,
+        currentStats: {
+          hours,
+          earnings: hours * member.hourlyRate,
+        }
+      };
+    }));
+
+    return new Response(
+      JSON.stringify(createResponse(timersWithStats)),
+      { status: Status.OK }
+    );
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    return new Response(
+      JSON.stringify(createResponse(null, errorMessage)),
+      { status: Status.InternalServerError }
+    );
+  }
+}
+
 // Router
 export async function router(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -977,6 +1163,18 @@ export async function router(req: Request): Promise<Response> {
       break;
     case "GET /financials/project":
       response = await handleGetProjectFinancials(req);
+      break;
+    case "POST /timer/start":
+      response = await handleStartTimer(req);
+      break;
+    case "POST /timer/stop":
+      response = await handleStopTimer(req);
+      break;
+    case "GET /timer/status":
+      response = await handleGetActiveTimer(req);
+      break;
+    case "GET /timer/project":
+      response = await handleGetProjectActiveTimers(req);
       break;
     default:
       response = new Response(
