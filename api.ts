@@ -2,7 +2,7 @@
 
 import { serve } from "std/http/server.ts";
 import { Status } from "std/http/http_status.ts";
-import { createUser, getUserByEmail, createProject, createTimeEntry, getTimeEntriesByUser, createAuthToken, getAuthToken, deleteAuthToken } from "./db.ts";
+import { createUser, getUserByEmail, getUserById, createProject, createTimeEntry, getTimeEntriesByUser, createAuthToken, getAuthToken, deleteAuthToken } from "./db.ts";
 import { User, Project, TimeEntry, AuthToken, ProjectStatus } from "./types.ts";
 import { crypto } from "std/crypto/mod.ts";
 
@@ -36,7 +36,7 @@ async function authenticate(request: Request): Promise<User | null> {
   const tokenData = await getAuthToken(userId, authToken);
   if (!tokenData || tokenData.expiresAt < new Date()) return null;
   
-  return await getUserByEmail(tokenData.userId);
+  return await getUserById(userId);
 }
 
 // Password hashing
@@ -88,6 +88,8 @@ async function handleLogin(req: Request): Promise<Response> {
 async function handleCreateUser(req: Request): Promise<Response> {
   try {
     const userData = await req.json();
+    console.log("Creating user:", userData);
+    
     const user: User = {
       ...userData,
       id: crypto.randomUUID(),
@@ -96,6 +98,7 @@ async function handleCreateUser(req: Request): Promise<Response> {
       updatedAt: new Date(),
     };
     
+    console.log("User object:", user);
     await createUser(user);
     const { passwordHash: _, ...safeUser } = user;
     
@@ -104,6 +107,7 @@ async function handleCreateUser(req: Request): Promise<Response> {
       { status: Status.Created }
     );
   } catch (error: unknown) {
+    console.error("Error creating user:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
     return new Response(
       JSON.stringify(createResponse(null, errorMessage)),

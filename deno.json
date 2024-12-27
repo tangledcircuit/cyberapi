@@ -1,14 +1,14 @@
 {
   "tasks": {
-    "dev": "deno run --allow-net --allow-read --allow-env --unstable api.ts",
-    "cache": "deno cache --unstable api.ts"
+    "dev": "deno run --allow-net --allow-env --unstable-kv api.ts",
+    "cache": "deno cache api.ts",
+    "test": "DENO_ENV=test deno test --allow-net --allow-env --unstable-kv tests/"
   },
   "imports": {
     "std/": "https://deno.land/std@0.201.0/"
   },
   "compilerOptions": {
     "strict": true,
-    "allowJs": false,
     "lib": ["deno.window", "deno.unstable"]
   },
   "lint": {

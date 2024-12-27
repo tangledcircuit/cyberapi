@@ -1,7 +1,8 @@
 import { User, Project, TimeEntry, AuthToken } from "./types.ts";
 
 // Initialize the KV store
-const kv = await Deno.openKv();
+// Use in-memory store for tests, default store for development/production
+const kv = await Deno.openKv(Deno.env.get("DENO_ENV") === "test" ? ":memory:" : undefined);
 
 // Helper function to create composite keys
 const createKey = (parts: unknown[]) => parts.map(String);
@@ -11,14 +12,27 @@ export async function createUser(user: User): Promise<void> {
   const userKey = createKey(["user", user.id]);
   const emailIndexKey = createKey(["user_email", user.email]);
   
+  console.log("Checking email:", emailIndexKey);
+  // Check if email already exists
+  const existingEmail = await kv.get(emailIndexKey);
+  console.log("Existing email check result:", existingEmail);
+  if (existingEmail.value) {
+    throw new Error("Email already exists");
+  }
+  
+  console.log("Creating atomic transaction");
   const atomic = kv.atomic();
   atomic
     .check({ key: emailIndexKey, versionstamp: null }) // Ensure email doesn't exist
     .set(userKey, user)
     .set(emailIndexKey, { userId: user.id });
   
+  console.log("Committing transaction");
   const result = await atomic.commit();
-  if (!result.ok) throw new Error("Failed to create user");
+  console.log("Transaction result:", result);
+  if (!result.ok) {
+    throw new Error("Failed to create user: Database error");
+  }
 }
 
 export async function getUserById(id: string): Promise<User | null> {
