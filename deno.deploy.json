@@ -1,0 +1,13 @@
+{
+  "project": "cyberapi",
+  "entrypoint": "api.ts",
+  "include": [
+    "api.ts",
+    "db.ts",
+    "types.ts",
+    "deno.json"
+  ],
+  "env": {
+    "DENO_ENV": "production"
+  }
+} 

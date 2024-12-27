@@ -1195,9 +1195,10 @@ export async function router(req: Request): Promise<Response> {
   });
 }
 
-// Start the server
-if (import.meta.main) {
-  const port = 8000;
-  console.log(`Server running on http://localhost:${port}`);
-  await serve(router, { port });
-} 
+// Get port from environment or use default
+const port = Deno.env.get("PORT") || "8000";
+const hostname = Deno.env.get("DENO_DEPLOYMENT_ID") ? undefined : "localhost";
+
+console.log(`Starting server...`);
+serve(router, { port: Number(port), hostname });
+console.log(`Server running on http://${hostname || ""}:${port}`); 
