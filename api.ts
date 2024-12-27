@@ -217,11 +217,16 @@ async function handleCreateProject(req: Request): Promise<Response> {
     await createProject(project);
 
     // Add owner as a project member
+    const now = new Date().toISOString();
     await createProjectMember({
       projectId: project.id,
       userId: user.id,
-      role: "OWNER",
+      role: ProjectRole.OWNER,
       hourlyRate: user.hourlyRate,
+      totalHours: 0,
+      joinedAt: now,
+      createdAt: now,
+      updatedAt: now,
     });
     
     return new Response(
@@ -439,6 +444,7 @@ async function _handleRespondToInvitation(req: Request): Promise<Response> {
         hourlyRate: invitation.hourlyRate,
         totalHours: 0,
         joinedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       
@@ -904,9 +910,9 @@ async function _handleGetProjectFinancials(req: Request): Promise<Response> {
       );
     }
     
-    // Check if user is project owner
-    const project = await getProjectById(projectId);
-    if (!project || project.ownerId !== user.id) {
+    // Check if user is project member
+    const member = await getProjectMember(projectId, user.id);
+    if (!member) {
       return new Response(
         JSON.stringify(createResponse(null, "Not authorized to view project financials")),
         { status: Status.Forbidden }
@@ -1160,11 +1166,16 @@ export async function router(req: Request): Promise<Response> {
       }
 
       const { projectId, userId, role, hourlyRate } = await req.json();
+      const now = new Date().toISOString();
       const member = await createProjectMember({
         projectId,
         userId,
         role,
         hourlyRate,
+        totalHours: 0,
+        joinedAt: now,
+        createdAt: now,
+        updatedAt: now,
       });
 
       return new Response(
@@ -1192,11 +1203,11 @@ export async function router(req: Request): Promise<Response> {
     }
 
     // Financial routes
-    if (path === "/api/financial/user-summary" && req.method === "GET") {
+    if (path === "/api/financials/user" && req.method === "GET") {
       return await _handleGetUserFinancials(req);
     }
 
-    if (path.startsWith("/api/financial/project-summary/") && req.method === "GET") {
+    if (path === "/api/financials/project" && req.method === "GET") {
       return await _handleGetProjectFinancials(req);
     }
 

@@ -1,4 +1,4 @@
-import { User, Project, TimeEntry, AuthToken, ProjectMember, ProjectInvitation, BudgetTransaction, ProfitShare, ProjectRole, PayPeriod, Earnings, ProjectFinancialSummary, UserFinancialSummary, ActiveTimer, ActiveTimerUserIndex, ActiveTimerProjectIndex } from "./types.ts";
+import { User, Project, TimeEntry, AuthToken, ProjectMember, ProjectInvitation, BudgetTransaction, ProfitShare, ProjectRole, PayPeriod, Earnings, ProjectFinancialSummary, UserFinancialSummary, ActiveTimer, _ActiveTimerUserIndex, ActiveTimerProjectIndex } from "./types.ts";
 
 // Initialize the KV store
 // Use in-memory store for tests, default store for development/production
@@ -559,6 +559,7 @@ export async function stopTimer(userId: string): Promise<TimeEntry> {
   const hours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
 
   // Create time entry
+  const now = new Date().toISOString();
   const timeEntry: TimeEntry = {
     id: crypto.randomUUID(),
     projectId: timer.projectId,
@@ -567,8 +568,8 @@ export async function stopTimer(userId: string): Promise<TimeEntry> {
     hours,
     costImpact: 0, // Will be calculated in createTimeEntry
     date: timer.startedAt,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   };
 
   // Delete timer and create time entry
@@ -621,4 +622,33 @@ export async function getActiveTimersByProject(projectId: string): Promise<Activ
   }
   
   return timers;
+}
+
+export async function createProjectMember(member: Partial<ProjectMember>): Promise<ProjectMember> {
+  const now = new Date().toISOString();
+  const newMember: ProjectMember = {
+    projectId: member.projectId!,
+    userId: member.userId!,
+    role: member.role || ProjectRole.MEMBER,
+    hourlyRate: member.hourlyRate || 0,
+    totalHours: member.totalHours || 0,
+    joinedAt: member.joinedAt || now,
+    createdAt: member.createdAt || now,
+    updatedAt: member.updatedAt || now,
+  };
+
+  const memberKey = createKey(["project_member", newMember.projectId, newMember.userId]);
+  const userIndexKey = createKey(["user_projects", newMember.userId, newMember.projectId]);
+  const projectIndexKey = createKey(["project_members", newMember.projectId, newMember.userId]);
+
+  const atomic = kv.atomic();
+  atomic
+    .set(memberKey, newMember)
+    .set(userIndexKey, { projectId: newMember.projectId })
+    .set(projectIndexKey, { userId: newMember.userId });
+
+  const result = await atomic.commit();
+  if (!result.ok) throw new Error("Failed to create project member");
+
+  return newMember;
 } 

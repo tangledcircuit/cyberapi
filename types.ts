@@ -35,6 +35,7 @@ export enum ProjectStatus {
 export enum ProjectRole {
   OWNER = "OWNER",
   MEMBER = "MEMBER",
+  ADMIN = "ADMIN",
 }
 
 export interface Project {
@@ -64,6 +65,7 @@ export interface ProjectMember {
   hourlyRate: number;
   totalHours: number;
   joinedAt: string;
+  createdAt: string;
   updatedAt: string;
 }
 
@@ -141,6 +143,8 @@ export type ProjectMemberIndex = { userId: string; role: ProjectRole };
 export type ProjectInvitationEmailIndex = { invitationId: string };
 export type BudgetTransactionProjectIndex = { transactionId: string };
 export type ProfitShareProjectIndex = { profitShareId: string };
+export type _ActiveTimerUserIndex = { timerId: string };
+export type ActiveTimerProjectIndex = { timerId: string };
 
 export interface PayPeriod {
   id: string;
@@ -218,8 +222,4 @@ export interface ActiveTimer {
 }
 
 // KV Schema types
-export type KvActiveTimer = ActiveTimer;
-
-// Index types for querying
-export type ActiveTimerUserIndex = { timerId: string };
-export type ActiveTimerProjectIndex = { timerId: string }; 
+export type KvActiveTimer = ActiveTimer; 

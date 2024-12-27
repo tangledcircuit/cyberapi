@@ -32,7 +32,7 @@ Authorization: Bearer <userId>:<authToken>
 
 #### Create User
 ```http
-POST /users
+POST /api/auth/register
 Content-Type: application/json
 
 {
@@ -46,7 +46,7 @@ Content-Type: application/json
 
 #### Login
 ```http
-POST /auth/login
+POST /api/auth/login
 Content-Type: application/json
 
 {
@@ -119,7 +119,7 @@ Content-Type: application/json
 
 #### Start Timer
 ```http
-POST /timer/start
+POST /api/timers/start
 Authorization: Bearer <token>
 Content-Type: application/json
 
@@ -145,7 +145,7 @@ Response:
 
 #### Stop Timer
 ```http
-POST /timer/stop
+POST /api/timers/stop
 Authorization: Bearer <token>
 ```
 
@@ -177,51 +177,24 @@ GET /timer/project?projectId=project-id
 Authorization: Bearer <token>
 ```
 
-### Financial Management
-
-#### Get User Financials
+#### Get Time Entries
 ```http
-GET /financials/user
-  ?userId=user-id
-  &startDate=2024-12-01T00:00:00.000Z
-  &endDate=2024-12-31T23:59:59.999Z
+GET /api/time-entries?startDate=2024-12-01&endDate=2024-12-31
 Authorization: Bearer <token>
 ```
 
-Note: To view another user's financials, you must either:
-- Be the user themselves
-- Include a projectId parameter where you are the project owner
+### Financial Management
 
-Response:
-```json
-{
-  "success": true,
-  "data": {
-    "summaries": [
-      {
-        "id": "summary-id",
-        "userId": "user-id",
-        "period": {
-          "startDate": "2024-12-01T06:00:00.000Z",
-          "endDate": "2024-12-31T06:00:00.000Z"
-        },
-        "projectEarnings": [
-          {
-            "projectId": "project-id",
-            "hoursWorked": 0.034,
-            "regularEarnings": 2.71,
-            "bonusEarnings": 497.21,
-            "totalEarnings": 499.92
-          }
-        ],
-        "totalHoursWorked": 0.034,
-        "totalRegularEarnings": 2.71,
-        "totalBonusEarnings": 497.21,
-        "totalEarnings": 499.92
-      }
-    ]
-  }
-}
+#### Get User Financial Summary
+```http
+GET /api/financial/user-summary
+Authorization: Bearer <token>
+```
+
+#### Get Project Financial Summary
+```http
+GET /api/financial/project-summary/{projectId}
+Authorization: Bearer <token>
 ```
 
 #### Distribute Project Profits

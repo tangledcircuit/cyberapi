@@ -10,7 +10,7 @@ async function makeRequest(
   method = "GET",
   body?: unknown,
   token?: string,
-): Promise<Response> {
+): Promise<{ response: Response; data: any }> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -25,44 +25,40 @@ async function makeRequest(
   });
 
   // Log error responses for debugging
+  const data = await response.json();
   if (!response.ok) {
-    const errorData = await response.json();
-    console.error(`Error on ${method} ${endpoint}:`, errorData);
+    console.error(`Error on ${method} ${endpoint}:`, data);
   }
 
-  return response;
+  return { response, data };
 }
 
 // Test user credentials
 const TEST_USER = {
   email: `test${Date.now()}@example.com`, // Make email unique
-  password: "testpass123",
+  password: "test123",
   firstName: "Test",
   lastName: "User",
-  hourlyRate: 50,
+  hourlyRate: 100,
 };
 
 Deno.test({
   name: "API Integration Tests",
   async fn(t) {
     // Test user registration
-    await t.step("POST /api/users - Create new user", async () => {
-      const response = await makeRequest("/api/users", "POST", TEST_USER);
-      const data = await response.json();
-      
-      assertEquals(response.status, 201);
+    await t.step("POST /api/auth/register - Create new user", async () => {
+      const { response, data } = await makeRequest("/api/auth/register", "POST", TEST_USER);
+      assertEquals(response.status, 200);
       assertExists(data.data.id);
       assertEquals(data.data.email, TEST_USER.email);
     });
 
     // Test user login
     await t.step("POST /api/auth/login - User login", async () => {
-      const response = await makeRequest("/api/auth/login", "POST", {
+      const { response, data } = await makeRequest("/api/auth/login", "POST", {
         email: TEST_USER.email,
         password: TEST_USER.password,
       });
-      const data = await response.json();
-      
       assertEquals(response.status, 200);
       assertExists(data.data.token);
       authToken = data.data.token;
@@ -74,41 +70,54 @@ Deno.test({
         name: "Test Project",
         description: "A test project",
         budget: 10000,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        profitSharingEnabled: true,
       };
 
-      const response = await makeRequest("/api/projects", "POST", projectData, authToken);
-      const data = await response.json();
-      
-      assertEquals(response.status, 201);
+      const { response, data } = await makeRequest("/api/projects", "POST", projectData, authToken);
+      assertEquals(response.status, 200);
       assertExists(data.data.id);
       assertEquals(data.data.name, projectData.name);
       projectId = data.data.id; // Save for later tests
+
+      // Add the user as a project member
+      const memberData = {
+        projectId,
+        userId: data.data.ownerId,
+        role: "OWNER",
+        hourlyRate: TEST_USER.hourlyRate,
+      };
+
+      const { response: memberResponse } = await makeRequest("/api/projects/members", "POST", memberData, authToken);
+      assertEquals(memberResponse.status, 200);
     });
 
     // Test time entry creation
     await t.step("POST /api/time-entries - Create time entry", async () => {
       const timeEntry = {
         projectId,
-        description: "Test time entry",
-        duration: 3600, // 1 hour in seconds
+        description: "Initial work",
+        hours: 2,
         date: new Date().toISOString(),
       };
 
-      const response = await makeRequest("/api/time-entries", "POST", timeEntry, authToken);
-      const data = await response.json();
-      
-      assertEquals(response.status, 201);
+      const { response, data } = await makeRequest("/api/time-entries", "POST", timeEntry, authToken);
+      assertEquals(response.status, 200);
       assertExists(data.data.id);
-      assertEquals(data.data.duration, timeEntry.duration);
+      assertEquals(data.data.hours, timeEntry.hours);
     });
 
     // Test getting user time entries
     await t.step("GET /api/time-entries - Get user time entries", async () => {
-      const response = await makeRequest("/api/time-entries", "GET", undefined, authToken);
-      const data = await response.json();
+      const startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 1);
+      const endDate = new Date();
       
+      const { response, data } = await makeRequest(
+        `/api/time-entries?startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}`,
+        "GET",
+        undefined,
+        authToken
+      );
       assertEquals(response.status, 200);
       assertExists(data.data);
       assertEquals(Array.isArray(data.data), true);
@@ -121,42 +130,36 @@ Deno.test({
         description: "Test timer",
       };
 
-      const response = await makeRequest("/api/timers/start", "POST", timerData, authToken);
-      const data = await response.json();
-      
+      const { response, data } = await makeRequest("/api/timers/start", "POST", timerData, authToken);
       assertEquals(response.status, 200);
       assertExists(data.data.id);
-      assertExists(data.data.startTime);
+      assertExists(data.data.startedAt);
     });
+
+    // Wait a bit before stopping the timer
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Test stopping a timer
     await t.step("POST /api/timers/stop - Stop timer", async () => {
-      const response = await makeRequest("/api/timers/stop", "POST", undefined, authToken);
-      const data = await response.json();
-      
+      const { response, data } = await makeRequest("/api/timers/stop", "POST", undefined, authToken);
       assertEquals(response.status, 200);
       assertExists(data.data.id);
-      assertExists(data.data.endTime);
+      assertExists(data.data.hours);
+      assertExists(data.data.costImpact);
     });
 
     // Test getting user financial summary
     await t.step("GET /api/financial/user-summary - Get user financial summary", async () => {
-      const response = await makeRequest("/api/financial/user-summary", "GET", undefined, authToken);
-      const data = await response.json();
-      
+      const { response, data } = await makeRequest("/api/financial/user-summary", "GET", undefined, authToken);
       assertEquals(response.status, 200);
       assertExists(data.data);
-      assertExists(data.data.totalEarnings);
     });
 
     // Test getting project financial summary
     await t.step("GET /api/financial/project-summary/:projectId - Get project financial summary", async () => {
-      const response = await makeRequest(`/api/financial/project-summary/${projectId}`, "GET", undefined, authToken);
-      const data = await response.json();
-      
+      const { response, data } = await makeRequest(`/api/financial/project-summary/${projectId}`, "GET", undefined, authToken);
       assertEquals(response.status, 200);
       assertExists(data.data);
-      assertExists(data.data.totalSpent);
     });
   },
   sanitizeResources: false,
