@@ -1106,143 +1106,66 @@ async function _handleGetProjectActiveTimers(req: Request): Promise<Response> {
 
 // Router function to handle all API requests
 export async function router(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const path = url.pathname;
-  
-  // Add CORS headers
   const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Content-Type": "application/json",
+    "content-type": "application/json",
+    "access-control-allow-origin": "*",
   };
 
-  // Handle preflight requests
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers });
-  }
-
-  // Add routes
   try {
-    // Auth routes
-    if (path === "/api/users" && req.method === "POST") {
-      const response = await handleCreateUser(req);
-      Object.entries(headers).forEach(([key, value]) => {
-        response.headers.set(key, value);
+    const url = new URL(req.url);
+    const path = url.pathname;
+
+    // Handle preflight requests
+    if (req.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          ...headers,
+          "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+          "Access-Control-Allow-Headers": "Authorization, Content-Type",
+        },
       });
-      return response;
     }
-    
+
+    // Auth routes
     if (path === "/api/auth/login" && req.method === "POST") {
-      const response = await handleLogin(req);
-      Object.entries(headers).forEach(([key, value]) => {
-        response.headers.set(key, value);
-      });
-      return response;
+      return await handleLogin(req);
+    }
+
+    if (path === "/api/auth/register" && req.method === "POST") {
+      return await handleCreateUser(req);
     }
 
     // Project routes
     if (path === "/api/projects" && req.method === "POST") {
-      const response = await handleCreateProject(req);
-      Object.entries(headers).forEach(([key, value]) => {
-        response.headers.set(key, value);
-      });
-      return response;
+      return await handleCreateProject(req);
     }
 
     // Time entry routes
     if (path === "/api/time-entries" && req.method === "POST") {
-      const response = await handleCreateTimeEntry(req);
-      Object.entries(headers).forEach(([key, value]) => {
-        response.headers.set(key, value);
-      });
-      return response;
+      return await handleCreateTimeEntry(req);
     }
     
     if (path === "/api/time-entries" && req.method === "GET") {
-      const user = await authenticate(req);
-      if (!user) {
-        return new Response(
-          JSON.stringify(createResponse(null, "Unauthorized")),
-          { status: Status.Unauthorized, headers }
-        );
-      }
-      const url = new URL(req.url);
-      const startDate = url.searchParams.get("startDate") || new Date().toISOString();
-      const endDate = url.searchParams.get("endDate") || new Date().toISOString();
-      const entries = await getTimeEntriesByUser(
-        user.id,
-        new Date(startDate),
-        new Date(endDate)
-      );
-      return new Response(
-        JSON.stringify(createResponse(entries)),
-        { status: Status.OK, headers }
-      );
+      return await _handleGetTimeEntries(req);
     }
 
     // Timer routes
     if (path === "/api/timers/start" && req.method === "POST") {
-      const user = await authenticate(req);
-      if (!user) {
-        return new Response(
-          JSON.stringify(createResponse(null, "Unauthorized")),
-          { status: Status.Unauthorized, headers }
-        );
-      }
-      const { projectId, description } = await req.json();
-      const timer = await startTimer({ userId: user.id, projectId, description });
-      return new Response(
-        JSON.stringify(createResponse(timer)),
-        { status: Status.OK, headers }
-      );
+      return await _handleStartTimer(req);
     }
 
     if (path === "/api/timers/stop" && req.method === "POST") {
-      const user = await authenticate(req);
-      if (!user) {
-        return new Response(
-          JSON.stringify(createResponse(null, "Unauthorized")),
-          { status: Status.Unauthorized, headers }
-        );
-      }
-      const timer = await stopTimer(user.id);
-      return new Response(
-        JSON.stringify(createResponse(timer)),
-        { status: Status.OK, headers }
-      );
+      return await _handleStopTimer(req);
     }
 
     // Financial routes
     if (path === "/api/financial/user-summary" && req.method === "GET") {
-      const user = await authenticate(req);
-      if (!user) {
-        return new Response(
-          JSON.stringify(createResponse(null, "Unauthorized")),
-          { status: Status.Unauthorized, headers }
-        );
-      }
-      const summary = await getUserFinancialSummaries(user.id);
-      return new Response(
-        JSON.stringify(createResponse(summary)),
-        { status: Status.OK, headers }
-      );
+      return await _handleGetUserFinancials(req);
     }
 
     if (path.startsWith("/api/financial/project-summary/") && req.method === "GET") {
-      const user = await authenticate(req);
-      if (!user) {
-        return new Response(
-          JSON.stringify(createResponse(null, "Unauthorized")),
-          { status: Status.Unauthorized, headers }
-        );
-      }
-      const projectId = path.split("/").pop();
-      const summary = await getProjectFinancialSummaries(projectId!);
-      return new Response(
-        JSON.stringify(createResponse(summary)),
-        { status: Status.OK, headers }
-      );
+      return await _handleGetProjectFinancials(req);
     }
 
     // If no route matches

@@ -528,9 +528,12 @@ export async function startTimer(timer: Partial<ActiveTimer>): Promise<ActiveTim
     updatedAt: new Date().toISOString(),
   };
 
-  const timerKey = createKey(["timer", newTimer.id]);
-  const userIndexKey = createKey(["timer_user", newTimer.userId]);
-  const projectIndexKey = createKey(["timer_project", newTimer.projectId, newTimer.id]);
+  // Use single key for user's active timer
+  const timerKey = createKey(["active_timer", newTimer.id]);
+  const userIndexKey = createKey(["active_timer_user", newTimer.userId]); // Single active timer per user
+  const projectIndexKey = createKey(["active_timer_project", newTimer.projectId, newTimer.id]);
+
+  console.log("Starting timer with keys:", { timerKey, userIndexKey, projectIndexKey });
 
   const atomic = kv.atomic();
   atomic
@@ -569,9 +572,11 @@ export async function stopTimer(userId: string): Promise<TimeEntry> {
   };
 
   // Delete timer and create time entry
-  const timerKey = createKey(["timer", timer.id]);
-  const userIndexKey = createKey(["timer_user", timer.userId]);
-  const projectIndexKey = createKey(["timer_project", timer.projectId, timer.id]);
+  const timerKey = createKey(["active_timer", timer.id]);
+  const userIndexKey = createKey(["active_timer_user", timer.userId]); // Single active timer per user
+  const projectIndexKey = createKey(["active_timer_project", timer.projectId, timer.id]);
+
+  console.log("Stopping timer with keys:", { timerKey, userIndexKey, projectIndexKey });
 
   const atomic = kv.atomic();
   atomic
@@ -589,13 +594,16 @@ export async function stopTimer(userId: string): Promise<TimeEntry> {
 }
 
 export async function getActiveTimerByUser(userId: string): Promise<ActiveTimer | null> {
-  const prefix = createKey(["active_timer_user", userId]);
+  const userIndexKey = createKey(["active_timer_user", userId]);
+  console.log("Getting active timer for user:", userIndexKey);
   
-  for await (const entry of kv.list<ActiveTimerUserIndex>({ prefix })) {
-    const timer = await kv.get<ActiveTimer>(createKey(["active_timer", entry.value.timerId]));
-    if (timer.value) {
-      return timer.value;
-    }
+  const indexEntry = await kv.get<{ timerId: string }>(userIndexKey);
+  console.log("Index entry:", indexEntry);
+  
+  if (indexEntry.value) {
+    const timer = await kv.get<ActiveTimer>(createKey(["active_timer", indexEntry.value.timerId]));
+    console.log("Timer:", timer);
+    return timer.value;
   }
   
   return null;
