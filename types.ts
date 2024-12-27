@@ -6,28 +6,78 @@ export interface User {
   firstName: string;
   lastName: string;
   hourlyRate: number;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
+  defaultPayPeriodSettings?: {
+    type: "WEEKLY" | "BI_WEEKLY" | "MONTHLY" | "CUSTOM";
+    customPeriodDays?: number;
+    startDayOfWeek?: number; // 0-6 for Sunday-Saturday
+    startDayOfMonth?: number; // 1-31
+  };
+}
+
+export interface UserPublic {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
 }
 
 // Project related types
+export enum ProjectStatus {
+  PLANNED = "PLANNED",
+  IN_PROGRESS = "IN_PROGRESS",
+  COMPLETED = "COMPLETED",
+  ON_HOLD = "ON_HOLD",
+  CANCELLED = "CANCELLED"
+}
+
+export enum ProjectRole {
+  OWNER = "OWNER",
+  MEMBER = "MEMBER",
+}
+
 export interface Project {
   id: string;
   name: string;
   description: string;
   budget: number;
-  status: ProjectStatus;
+  remainingBudget: number;
   clientId: string;
-  createdAt: Date;
-  updatedAt: Date;
+  ownerId: string;
+  status: ProjectStatus;
+  profitSharingEnabled: boolean;
+  bonusPool: number;
+  createdAt: string;
+  updatedAt: string;
+  invoiceSettings?: {
+    payPeriodType: "WEEKLY" | "BI_WEEKLY" | "MONTHLY" | "CUSTOM";
+    customPeriodDays?: number;
+    autoGenerateInvoices: boolean;
+  };
 }
 
-export enum ProjectStatus {
-  PLANNED = "PLANNED",
-  IN_PROGRESS = "IN_PROGRESS",
-  ON_HOLD = "ON_HOLD",
-  COMPLETED = "COMPLETED",
-  CANCELLED = "CANCELLED"
+export interface ProjectMember {
+  projectId: string;
+  userId: string;
+  role: ProjectRole;
+  hourlyRate: number;
+  totalHours: number;
+  joinedAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectInvitation {
+  id: string;
+  projectId: string;
+  inviterId: string;
+  inviteeEmail: string;
+  status: "PENDING" | "ACCEPTED" | "DECLINED";
+  role: ProjectRole;
+  hourlyRate: number;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
 }
 
 // Time tracking related types
@@ -37,65 +87,123 @@ export interface TimeEntry {
   userId: string;
   description: string;
   hours: number;
-  date: Date;
-  createdAt: Date;
-  updatedAt: Date;
+  date: string;
+  costImpact: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Budget and profit sharing types
+export interface BudgetTransaction {
+  id: string;
+  projectId: string;
+  userId: string;
+  amount: number;
+  type: "TIME" | "BONUS";
+  description: string;
+  createdAt: string;
+}
+
+export interface ProfitShare {
+  id: string;
+  projectId: string;
+  userId: string;
+  amount: number;
+  percentage: number;
+  status: "PENDING" | "PAID";
+  createdAt: string;
 }
 
 // Authentication related types
 export interface AuthToken {
   token: string;
   userId: string;
-  expiresAt: Date;
-  createdAt: Date;
+  expiresAt: string;
+  createdAt: string;
 }
 
 // KV Schema types
-export type KvUser = {
-  prefix: "user";
-  id: string;
-};
-
-export type KvProject = {
-  prefix: "project";
-  id: string;
-};
-
-export type KvTimeEntry = {
-  prefix: "time";
-  projectId: string;
-  userId: string;
-  id: string;
-};
-
-export type KvAuthToken = {
-  prefix: "auth";
-  userId: string;
-  token: string;
-};
+export type KvUser = User;
+export type KvProject = Project;
+export type KvTimeEntry = TimeEntry;
+export type KvAuthToken = AuthToken;
+export type KvProjectMember = ProjectMember;
+export type KvProjectInvitation = ProjectInvitation;
+export type KvBudgetTransaction = BudgetTransaction;
+export type KvProfitShare = ProfitShare;
 
 // Index types for querying
-export type KvUserEmailIndex = {
-  prefix: "user_email";
-  email: string;
-};
+export type UserEmailIndex = { userId: string };
+export type ProjectClientIndex = { projectId: string };
+export type TimeUserIndex = { entryId: string };
+export type TimeProjectIndex = { entryId: string };
+export type ProjectMemberIndex = { userId: string; role: ProjectRole };
+export type ProjectInvitationEmailIndex = { invitationId: string };
+export type BudgetTransactionProjectIndex = { transactionId: string };
+export type ProfitShareProjectIndex = { profitShareId: string };
 
-export type KvProjectClientIndex = {
-  prefix: "project_client";
-  clientId: string;
-  projectId: string;
-};
-
-export type KvTimeEntryUserIndex = {
-  prefix: "time_user";
+export interface PayPeriod {
+  id: string;
   userId: string;
-  date: string;
-  id: string;
-};
+  startDate: string;
+  endDate: string;
+  status: "OPEN" | "CLOSED";
+  createdAt: string;
+  updatedAt: string;
+}
 
-export type KvTimeEntryProjectIndex = {
-  prefix: "time_project";
-  projectId: string;
-  date: string;
+export interface Earnings {
   id: string;
-}; 
+  userId: string;
+  projectId: string;
+  payPeriodId: string;
+  regularHours: number;
+  regularEarnings: number;
+  bonusEarnings: number;
+  totalEarnings: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectFinancialSummary {
+  id: string;
+  projectId: string;
+  period: {
+    startDate: string;
+    endDate: string;
+  };
+  totalBudget: number;
+  totalSpent: number;
+  totalBonusesDistributed: number;
+  memberSummaries: {
+    userId: string;
+    hoursWorked: number;
+    regularEarnings: number;
+    bonusEarnings: number;
+    totalEarnings: number;
+  }[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserFinancialSummary {
+  id: string;
+  userId: string;
+  period: {
+    startDate: string;
+    endDate: string;
+  };
+  projectEarnings: {
+    projectId: string;
+    hoursWorked: number;
+    regularEarnings: number;
+    bonusEarnings: number;
+    totalEarnings: number;
+  }[];
+  totalHoursWorked: number;
+  totalRegularEarnings: number;
+  totalBonusEarnings: number;
+  totalEarnings: number;
+  createdAt: string;
+  updatedAt: string;
+} 
