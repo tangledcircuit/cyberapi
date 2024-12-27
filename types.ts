@@ -89,8 +89,9 @@ export interface TimeEntry {
   userId: string;
   description: string;
   hours: number;
-  date: string;
   costImpact: number;
+  date: string;
+  status: "PENDING" | "COMPLETED";
   createdAt: string;
   updatedAt: string;
 }

@@ -26,6 +26,9 @@ import {
   getActiveTimerByUser,
   getActiveTimersByProject,
   createProjectMember,
+  getTimeEntryById,
+  completeTimeEntry,
+  distributeProjectProfits,
 } from "./db.ts";
 import {
   User,
@@ -196,30 +199,32 @@ async function handleCreateProject(req: Request): Promise<Response> {
       { status: Status.Unauthorized }
     );
   }
-  
+
   try {
-    const projectData = await req.json();
-    const project: Project = {
-      id: crypto.randomUUID(),
-      name: projectData.name,
-      description: projectData.description,
-      budget: projectData.budget,
-      remainingBudget: projectData.budget,
-      clientId: projectData.clientId || "", // Optional, default to empty string
+    const { name, description, budget, profitSharingEnabled } = await req.json();
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+
+    const projectData: Project = {
+      id,
+      name,
+      description,
+      budget,
+      remainingBudget: budget,
+      clientId: "",
       ownerId: user.id,
       status: ProjectStatus.PLANNED,
-      profitSharingEnabled: projectData.profitSharingEnabled || false,
+      profitSharingEnabled,
       bonusPool: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     };
-    
-    await createProject(project);
 
-    // Add owner as a project member
-    const now = new Date().toISOString();
+    await createProject(projectData);
+
+    // Add owner as project member
     await createProjectMember({
-      projectId: project.id,
+      projectId: id,
       userId: user.id,
       role: ProjectRole.OWNER,
       hourlyRate: user.hourlyRate,
@@ -228,13 +233,12 @@ async function handleCreateProject(req: Request): Promise<Response> {
       createdAt: now,
       updatedAt: now,
     });
-    
+
     return new Response(
-      JSON.stringify(createResponse(project)),
+      JSON.stringify(createResponse(projectData)),
       { status: Status.Created }
     );
   } catch (error: unknown) {
-    console.error("Project creation error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
     return new Response(
       JSON.stringify(createResponse(null, errorMessage)),
@@ -983,7 +987,15 @@ async function _handleStopTimer(req: Request): Promise<Response> {
   }
 
   try {
-    const timeEntry = await stopTimer(user.id);
+    const timer = await getActiveTimerByUser(user.id);
+    if (!timer) {
+      return new Response(
+        JSON.stringify(createResponse(null, "No active timer found")),
+        { status: Status.NotFound }
+      );
+    }
+
+    const timeEntry = await stopTimer(timer);
     return new Response(
       JSON.stringify(createResponse(timeEntry)),
       { status: Status.OK }
@@ -1119,6 +1131,102 @@ async function _handleGetProjectActiveTimers(req: Request): Promise<Response> {
   }
 }
 
+async function _handleCompleteTimeEntry(req: Request): Promise<Response> {
+  const user = await authenticate(req);
+  if (!user) {
+    return new Response(
+      JSON.stringify(createResponse(null, "Unauthorized")),
+      { status: Status.Unauthorized }
+    );
+  }
+
+  try {
+    const url = new URL(req.url);
+    const parts = url.pathname.split("/");
+    const timeEntryId = parts[3];
+
+    if (!timeEntryId) {
+      return new Response(
+        JSON.stringify(createResponse(null, "Time entry ID is required")),
+        { status: Status.BadRequest }
+      );
+    }
+
+    const timeEntry = await getTimeEntryById(timeEntryId);
+    if (!timeEntry) {
+      return new Response(
+        JSON.stringify(createResponse(null, "Time entry not found")),
+        { status: Status.NotFound }
+      );
+    }
+
+    // Check if user is project owner
+    const project = await getProjectById(timeEntry.projectId);
+    if (!project || project.ownerId !== user.id) {
+      return new Response(
+        JSON.stringify(createResponse(null, "Not authorized to complete time entries")),
+        { status: Status.Forbidden }
+      );
+    }
+
+    const updatedEntry = await completeTimeEntry(timeEntryId);
+    return new Response(
+      JSON.stringify(createResponse(updatedEntry)),
+      { status: Status.OK }
+    );
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    return new Response(
+      JSON.stringify(createResponse(null, errorMessage)),
+      { status: Status.InternalServerError }
+    );
+  }
+}
+
+async function _handleDistributeProjectProfits(req: Request): Promise<Response> {
+  const user = await authenticate(req);
+  if (!user) {
+    return new Response(
+      JSON.stringify(createResponse(null, "Unauthorized")),
+      { status: Status.Unauthorized }
+    );
+  }
+
+  try {
+    const url = new URL(req.url);
+    const parts = url.pathname.split("/");
+    const projectId = parts[3];
+
+    if (!projectId) {
+      return new Response(
+        JSON.stringify(createResponse(null, "Project ID is required")),
+        { status: Status.BadRequest }
+      );
+    }
+
+    // Check if user is project owner
+    const project = await getProjectById(projectId);
+    if (!project || project.ownerId !== user.id) {
+      return new Response(
+        JSON.stringify(createResponse(null, "Not authorized to distribute profits")),
+        { status: Status.Forbidden }
+      );
+    }
+
+    const result = await distributeProjectProfits(projectId);
+    return new Response(
+      JSON.stringify(createResponse(result)),
+      { status: Status.OK }
+    );
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+    return new Response(
+      JSON.stringify(createResponse(null, errorMessage)),
+      { status: Status.InternalServerError }
+    );
+  }
+}
+
 // Router function to handle all API requests
 export async function router(req: Request): Promise<Response> {
   const headers = {
@@ -1209,6 +1317,16 @@ export async function router(req: Request): Promise<Response> {
 
     if (path === "/api/financials/project" && req.method === "GET") {
       return await _handleGetProjectFinancials(req);
+    }
+
+    // Time entry routes
+    if (path.match(/^\/api\/time-entries\/[^/]+\/complete$/) && req.method === "POST") {
+      return await _handleCompleteTimeEntry(req);
+    }
+
+    // Project routes
+    if (path.match(/^\/api\/projects\/[^/]+\/distribute-profits$/) && req.method === "POST") {
+      return await _handleDistributeProjectProfits(req);
     }
 
     // If no route matches

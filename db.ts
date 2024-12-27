@@ -135,138 +135,41 @@ export async function updateProjectInvitation(invitation: ProjectInvitation): Pr
 }
 
 // Time entry operations
-export async function createTimeEntry(entry: TimeEntry): Promise<void> {
-  const timeKey = createKey(["time", entry.id]);
-  const userIndexKey = createKey(["time_user", entry.userId, entry.date, entry.id]);
-  const projectIndexKey = createKey(["time_project", entry.projectId, entry.date, entry.id]);
-  
-  // Get project member to get their hourly rate
-  const member = await getProjectMember(entry.projectId, entry.userId);
-  if (!member) throw new Error("User is not a member of this project");
-  
-  // Calculate cost impact
-  entry.costImpact = entry.hours * member.hourlyRate;
-  
-  // Create budget transaction
-  const transaction: BudgetTransaction = {
-    id: crypto.randomUUID(),
-    projectId: entry.projectId,
-    userId: entry.userId,
-    amount: -entry.costImpact,
-    type: "TIME",
-    description: `Time entry: ${entry.description}`,
-    createdAt: new Date().toISOString(),
+export async function createTimeEntry(entry: Omit<TimeEntry, "id" | "createdAt" | "updatedAt">): Promise<TimeEntry> {
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const timeEntry: TimeEntry = {
+    ...entry,
+    id,
+    status: "PENDING",
+    createdAt: now,
+    updatedAt: now,
   };
-  
-  // Get or create pay period for this month
-  const entryDate = new Date(entry.date);
-  const startOfMonth = new Date(entryDate.getFullYear(), entryDate.getMonth(), 1).toISOString();
-  const endOfMonth = new Date(entryDate.getFullYear(), entryDate.getMonth() + 1, 0).toISOString();
-  
-  let payPeriod = (await getPayPeriods(entry.userId, startOfMonth, endOfMonth))[0];
-  if (!payPeriod) {
-    payPeriod = {
-      id: crypto.randomUUID(),
-      userId: entry.userId,
-      startDate: startOfMonth,
-      endDate: endOfMonth,
-      status: "OPEN",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+
+  const timeKey = ["time", id];
+  const userIndexKey = ["time_user", entry.userId, entry.date, id];
+  const projectIndexKey = ["time_project", entry.projectId, entry.date, id];
+
+  console.log("Creating time entry:", {
+    entry: timeEntry,
+    timeKey,
+    userIndexKey,
+    projectIndexKey,
+  });
+
+  const ok = await kv.atomic()
+    .set(timeKey, timeEntry)
+    .set(userIndexKey, { timeEntryId: id })
+    .set(projectIndexKey, { timeEntryId: id })
+    .commit();
+
+  console.log("Time entry creation result:", ok);
+
+  if (!ok.ok) {
+    throw new Error("Failed to create time entry");
   }
-  
-  // Create earnings record
-  const earnings: Earnings = {
-    id: crypto.randomUUID(),
-    userId: entry.userId,
-    projectId: entry.projectId,
-    payPeriodId: payPeriod.id,
-    regularHours: entry.hours,
-    regularEarnings: entry.costImpact,
-    bonusEarnings: 0,
-    totalEarnings: entry.costImpact,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  
-  // Get project for budget info
-  const project = await getProjectById(entry.projectId);
-  if (!project) throw new Error("Project not found");
-  
-  // Update user financial summary
-  const userSummary: UserFinancialSummary = {
-    id: crypto.randomUUID(),
-    userId: entry.userId,
-    period: {
-      startDate: startOfMonth,
-      endDate: endOfMonth,
-    },
-    projectEarnings: [{
-      projectId: entry.projectId,
-      hoursWorked: entry.hours,
-      regularEarnings: entry.costImpact,
-      bonusEarnings: 0,
-      totalEarnings: entry.costImpact,
-    }],
-    totalHoursWorked: entry.hours,
-    totalRegularEarnings: entry.costImpact,
-    totalBonusEarnings: 0,
-    totalEarnings: entry.costImpact,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  
-  // Update project financial summary
-  const projectSummary: ProjectFinancialSummary = {
-    id: crypto.randomUUID(),
-    projectId: entry.projectId,
-    period: {
-      startDate: startOfMonth,
-      endDate: endOfMonth,
-    },
-    totalBudget: project.budget,
-    totalSpent: entry.costImpact,
-    totalBonusesDistributed: 0,
-    memberSummaries: [{
-      userId: entry.userId,
-      hoursWorked: entry.hours,
-      regularEarnings: entry.costImpact,
-      bonusEarnings: 0,
-      totalEarnings: entry.costImpact,
-    }],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  
-  console.log("Creating time entry:", { entry, timeKey, userIndexKey, projectIndexKey });
-  
-  const atomic = kv.atomic();
-  atomic
-    .set(timeKey, entry)
-    .set(userIndexKey, { entryId: entry.id })
-    .set(projectIndexKey, { entryId: entry.id })
-    .set(createKey(["budget_transaction", transaction.id]), transaction)
-    .set(createKey(["budget_transaction_project", entry.projectId, transaction.id]), { transactionId: transaction.id })
-    .set(createKey(["pay_period", payPeriod.userId, payPeriod.id]), payPeriod)
-    .set(createKey(["pay_period_user", payPeriod.userId, payPeriod.startDate, payPeriod.id]), { payPeriodId: payPeriod.id })
-    .set(createKey(["earnings", earnings.id]), earnings)
-    .set(createKey(["earnings_user", earnings.userId, earnings.payPeriodId, earnings.id]), { earningsId: earnings.id })
-    .set(createKey(["earnings_project", earnings.projectId, earnings.payPeriodId, earnings.id]), { earningsId: earnings.id })
-    .set(createKey(["user_summary", userSummary.userId, userSummary.period.startDate, userSummary.id]), userSummary)
-    .set(createKey(["project_summary", projectSummary.projectId, projectSummary.period.startDate, projectSummary.id]), projectSummary);
-  
-  // Update project budget
-  await updateProjectBudget(entry.projectId, -entry.costImpact);
-  
-  // Update member's total hours
-  member.totalHours += entry.hours;
-  member.updatedAt = new Date().toISOString();
-  await addProjectMember(member);
-  
-  const result = await atomic.commit();
-  console.log("Time entry creation result:", result);
-  if (!result.ok) throw new Error("Failed to create time entry");
+
+  return timeEntry;
 }
 
 export async function getTimeEntriesByUser(userId: string, startDate: Date, endDate: Date): Promise<TimeEntry[]> {
@@ -547,50 +450,30 @@ export async function startTimer(timer: Partial<ActiveTimer>): Promise<ActiveTim
   return newTimer;
 }
 
-export async function stopTimer(userId: string): Promise<TimeEntry> {
-  const timer = await getActiveTimerByUser(userId);
-  if (!timer) {
-    throw new Error("No active timer found");
+export async function stopTimer(timer: ActiveTimer): Promise<TimeEntry> {
+  const now = new Date().toISOString();
+  const duration = (new Date(now).getTime() - new Date(timer.startedAt).getTime()) / 1000 / 60 / 60; // Convert to hours
+
+  // Get project member to calculate cost impact
+  const member = await getProjectMember(timer.projectId, timer.userId);
+  if (!member) {
+    throw new Error("User is not a member of this project");
   }
 
-  // Calculate duration
-  const startTime = new Date(timer.startedAt);
-  const endTime = new Date();
-  const hours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
-
-  // Create time entry
-  const now = new Date().toISOString();
   const timeEntry: TimeEntry = {
     id: crypto.randomUUID(),
     projectId: timer.projectId,
     userId: timer.userId,
     description: timer.description,
-    hours,
-    costImpact: 0, // Will be calculated in createTimeEntry
+    hours: duration,
+    costImpact: duration * member.hourlyRate,
     date: timer.startedAt,
+    status: "PENDING",
     createdAt: now,
     updatedAt: now,
   };
 
-  // Delete timer and create time entry
-  const timerKey = createKey(["active_timer", timer.id]);
-  const userIndexKey = createKey(["active_timer_user", timer.userId]); // Single active timer per user
-  const projectIndexKey = createKey(["active_timer_project", timer.projectId, timer.id]);
-
-  console.log("Stopping timer with keys:", { timerKey, userIndexKey, projectIndexKey });
-
-  const atomic = kv.atomic();
-  atomic
-    .delete(timerKey)
-    .delete(userIndexKey)
-    .delete(projectIndexKey);
-
-  const result = await atomic.commit();
-  if (!result.ok) throw new Error("Failed to stop timer");
-
-  // Create the time entry
   await createTimeEntry(timeEntry);
-
   return timeEntry;
 }
 
@@ -624,31 +507,105 @@ export async function getActiveTimersByProject(projectId: string): Promise<Activ
   return timers;
 }
 
-export async function createProjectMember(member: Partial<ProjectMember>): Promise<ProjectMember> {
+export async function createProjectMember(member: Omit<ProjectMember, "id">): Promise<ProjectMember> {
   const now = new Date().toISOString();
   const newMember: ProjectMember = {
-    projectId: member.projectId!,
-    userId: member.userId!,
-    role: member.role || ProjectRole.MEMBER,
-    hourlyRate: member.hourlyRate || 0,
-    totalHours: member.totalHours || 0,
-    joinedAt: member.joinedAt || now,
-    createdAt: member.createdAt || now,
-    updatedAt: member.updatedAt || now,
+    ...member,
+    createdAt: now,
+    updatedAt: now,
   };
 
-  const memberKey = createKey(["project_member", newMember.projectId, newMember.userId]);
-  const userIndexKey = createKey(["user_projects", newMember.userId, newMember.projectId]);
-  const projectIndexKey = createKey(["project_members", newMember.projectId, newMember.userId]);
-
-  const atomic = kv.atomic();
-  atomic
-    .set(memberKey, newMember)
-    .set(userIndexKey, { projectId: newMember.projectId })
-    .set(projectIndexKey, { userId: newMember.userId });
-
-  const result = await atomic.commit();
-  if (!result.ok) throw new Error("Failed to create project member");
+  const ok = await kv.set(["project_member", member.projectId, member.userId], newMember);
+  if (!ok) {
+    throw new Error("Failed to create project member");
+  }
 
   return newMember;
+}
+
+export async function getTimeEntryById(id: string): Promise<TimeEntry | null> {
+  const key = ["time", id];
+  const entry = await kv.get<TimeEntry>(key);
+  return entry.value;
+}
+
+export async function completeTimeEntry(id: string): Promise<TimeEntry> {
+  const key = ["time", id];
+  const entry = await kv.get<TimeEntry>(key);
+  if (!entry.value) {
+    throw new Error("Time entry not found");
+  }
+
+  const now = new Date().toISOString();
+  const updatedEntry = {
+    ...entry.value,
+    status: "COMPLETED",
+    updatedAt: now,
+  };
+
+  const ok = await kv.set(key, updatedEntry);
+  if (!ok) {
+    throw new Error("Failed to complete time entry");
+  }
+
+  return updatedEntry;
+}
+
+export async function distributeProjectProfits(projectId: string): Promise<{ distributedAmount: number }> {
+  // Get project details
+  const project = await getProjectById(projectId);
+  if (!project) {
+    throw new Error("Project not found");
+  }
+
+  if (!project.profitSharingEnabled) {
+    throw new Error("Profit sharing is not enabled for this project");
+  }
+
+  // Get all completed time entries for the project
+  const prefix = ["time_project", projectId];
+  const entries = await kv.list<TimeEntry>({ prefix });
+  
+  let totalHours = 0;
+  const completedEntries: TimeEntry[] = [];
+
+  for await (const entry of entries) {
+    if (entry.value.status === "COMPLETED") {
+      totalHours += entry.value.hours;
+      completedEntries.push(entry.value);
+    }
+  }
+
+  if (totalHours === 0) {
+    throw new Error("No completed time entries found");
+  }
+
+  // Calculate profit pool (10% of project budget)
+  const profitPool = project.budget * 0.1;
+  const hourlyProfit = profitPool / totalHours;
+
+  // Distribute profits to team members
+  for (const entry of completedEntries) {
+    const profit = entry.hours * hourlyProfit;
+    const member = await getProjectMember(projectId, entry.userId);
+    if (member) {
+      await kv.set(["profit", entry.id], {
+        timeEntryId: entry.id,
+        userId: entry.userId,
+        projectId,
+        amount: profit,
+        distributedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  // Update project bonus pool
+  const updatedProject = {
+    ...project,
+    bonusPool: profitPool,
+    updatedAt: new Date().toISOString(),
+  };
+  await kv.set(["project", projectId], updatedProject);
+
+  return { distributedAmount: profitPool };
 } 
