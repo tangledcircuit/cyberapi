@@ -1095,104 +1095,152 @@ async function handleGetProjectActiveTimers(req: Request): Promise<Response> {
   }
 }
 
-// Router
+// Router function to handle all API requests
 export async function router(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
   
-  // CORS headers
+  // Add CORS headers
   const headers = {
-    "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Content-Type": "application/json",
   };
-  
-  // Handle preflight
+
+  // Handle preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { headers });
   }
-  
-  let response: Response;
-  
-  switch (`${req.method} ${path}`) {
-    case "POST /auth/login":
-      response = await handleLogin(req);
-      break;
-    case "DELETE /auth/logout":
-      response = await handleLogout(req);
-      break;
-    case "POST /users":
-      response = await handleCreateUser(req);
-      break;
-    case "POST /projects":
-      response = await handleCreateProject(req);
-      break;
-    case "POST /time-entries":
-      response = await handleCreateTimeEntry(req);
-      break;
-    case "GET /time-entries":
-      response = await handleGetTimeEntries(req);
-      break;
-    case "POST /projects/invite":
-      response = await handleInviteToProject(req);
-      break;
-    case "POST /projects/invitations/respond":
-      response = await handleRespondToInvitation(req);
-      break;
-    case "GET /projects/members":
-      response = await handleGetProjectMembers(req);
-      break;
-    case "GET /projects/budget":
-      response = await handleGetProjectBudget(req);
-      break;
-    case "POST /projects/profits/distribute":
-      response = await handleDistributeProfits(req);
-      break;
-    case "GET /projects/profits":
-      response = await handleGetProfitShares(req);
-      break;
-    case "POST /pay-periods":
-      response = await handleCreatePayPeriod(req);
-      break;
-    case "GET /pay-periods":
-      response = await handleGetPayPeriods(req);
-      break;
-    case "GET /financials/user":
-      response = await handleGetUserFinancials(req);
-      break;
-    case "GET /financials/project":
-      response = await handleGetProjectFinancials(req);
-      break;
-    case "POST /timer/start":
-      response = await handleStartTimer(req);
-      break;
-    case "POST /timer/stop":
-      response = await handleStopTimer(req);
-      break;
-    case "GET /timer/status":
-      response = await handleGetActiveTimer(req);
-      break;
-    case "GET /timer/project":
-      response = await handleGetProjectActiveTimers(req);
-      break;
-    default:
-      response = new Response(
-        JSON.stringify(createResponse(null, "Not Found")),
-        { status: Status.NotFound }
+
+  // Add routes
+  try {
+    // Auth routes
+    if (path === "/api/users" && req.method === "POST") {
+      const response = await handleCreateUser(req);
+      Object.entries(headers).forEach(([key, value]) => {
+        response.headers.set(key, value);
+      });
+      return response;
+    }
+    
+    if (path === "/api/auth/login" && req.method === "POST") {
+      const response = await handleLogin(req);
+      Object.entries(headers).forEach(([key, value]) => {
+        response.headers.set(key, value);
+      });
+      return response;
+    }
+
+    // Project routes
+    if (path === "/api/projects" && req.method === "POST") {
+      const response = await handleCreateProject(req);
+      Object.entries(headers).forEach(([key, value]) => {
+        response.headers.set(key, value);
+      });
+      return response;
+    }
+
+    // Time entry routes
+    if (path === "/api/time-entries" && req.method === "POST") {
+      const response = await handleCreateTimeEntry(req);
+      Object.entries(headers).forEach(([key, value]) => {
+        response.headers.set(key, value);
+      });
+      return response;
+    }
+    
+    if (path === "/api/time-entries" && req.method === "GET") {
+      const user = await authenticate(req);
+      if (!user) {
+        return new Response(
+          JSON.stringify(createResponse(null, "Unauthorized")),
+          { status: Status.Unauthorized, headers }
+        );
+      }
+      const entries = await getTimeEntriesByUser(user.id);
+      return new Response(
+        JSON.stringify(createResponse(entries)),
+        { status: Status.OK, headers }
       );
+    }
+
+    // Timer routes
+    if (path === "/api/timers/start" && req.method === "POST") {
+      const user = await authenticate(req);
+      if (!user) {
+        return new Response(
+          JSON.stringify(createResponse(null, "Unauthorized")),
+          { status: Status.Unauthorized, headers }
+        );
+      }
+      const { projectId, description } = await req.json();
+      const timer = await startTimer({ userId: user.id, projectId, description });
+      return new Response(
+        JSON.stringify(createResponse(timer)),
+        { status: Status.OK, headers }
+      );
+    }
+
+    if (path === "/api/timers/stop" && req.method === "POST") {
+      const user = await authenticate(req);
+      if (!user) {
+        return new Response(
+          JSON.stringify(createResponse(null, "Unauthorized")),
+          { status: Status.Unauthorized, headers }
+        );
+      }
+      const timer = await stopTimer({ userId: user.id });
+      return new Response(
+        JSON.stringify(createResponse(timer)),
+        { status: Status.OK, headers }
+      );
+    }
+
+    // Financial routes
+    if (path === "/api/financial/user-summary" && req.method === "GET") {
+      const user = await authenticate(req);
+      if (!user) {
+        return new Response(
+          JSON.stringify(createResponse(null, "Unauthorized")),
+          { status: Status.Unauthorized, headers }
+        );
+      }
+      const summary = await getUserFinancialSummaries({ userId: user.id });
+      return new Response(
+        JSON.stringify(createResponse(summary)),
+        { status: Status.OK, headers }
+      );
+    }
+
+    if (path.startsWith("/api/financial/project-summary/") && req.method === "GET") {
+      const user = await authenticate(req);
+      if (!user) {
+        return new Response(
+          JSON.stringify(createResponse(null, "Unauthorized")),
+          { status: Status.Unauthorized, headers }
+        );
+      }
+      const projectId = path.split("/").pop();
+      const summary = await getProjectFinancialSummaries({ projectId: projectId! });
+      return new Response(
+        JSON.stringify(createResponse(summary)),
+        { status: Status.OK, headers }
+      );
+    }
+
+    // If no route matches
+    return new Response(
+      JSON.stringify(createResponse(null, "Not Found")),
+      { status: Status.NotFound, headers }
+    );
+  } catch (error) {
+    console.error("Router error:", error);
+    return new Response(
+      JSON.stringify(createResponse(null, "Internal Server Error")),
+      { status: Status.InternalServerError, headers }
+    );
   }
-  
-  // Add CORS headers to response
-  const responseHeaders = new Headers(response.headers);
-  Object.entries(headers).forEach(([key, value]) => {
-    responseHeaders.set(key, value);
-  });
-  
-  return new Response(response.body, {
-    status: response.status,
-    headers: responseHeaders,
-  });
 }
 
 // Get port from environment or use default
