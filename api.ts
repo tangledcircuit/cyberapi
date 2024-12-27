@@ -265,7 +265,7 @@ async function handleCreateTimeEntry(req: Request): Promise<Response> {
   }
 }
 
-async function handleGetTimeEntries(req: Request): Promise<Response> {
+async function _handleGetTimeEntries(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -279,10 +279,14 @@ async function handleGetTimeEntries(req: Request): Promise<Response> {
     const startDate = new Date(url.searchParams.get("startDate") || "");
     const endDate = new Date(url.searchParams.get("endDate") || "");
     
-    const entries = await getTimeEntriesByUser(user.id, startDate, endDate);
+    const timeEntries = await getTimeEntriesByUser(
+      user.id,
+      new Date(startDate),
+      new Date(endDate)
+    );
     
     return new Response(
-      JSON.stringify(createResponse(entries)),
+      JSON.stringify(createResponse(timeEntries)),
       { status: Status.OK }
     );
   } catch (error: unknown) {
@@ -294,7 +298,7 @@ async function handleGetTimeEntries(req: Request): Promise<Response> {
   }
 }
 
-async function handleLogout(req: Request): Promise<Response> {
+async function _handleLogout(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -324,7 +328,7 @@ async function handleLogout(req: Request): Promise<Response> {
 }
 
 // Project collaboration endpoints
-async function handleInviteToProject(req: Request): Promise<Response> {
+async function _handleInviteToProject(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -373,7 +377,7 @@ async function handleInviteToProject(req: Request): Promise<Response> {
   }
 }
 
-async function handleRespondToInvitation(req: Request): Promise<Response> {
+async function _handleRespondToInvitation(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -445,7 +449,7 @@ async function handleRespondToInvitation(req: Request): Promise<Response> {
   }
 }
 
-async function handleGetProjectMembers(req: Request): Promise<Response> {
+async function _handleGetProjectMembers(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -489,7 +493,7 @@ async function handleGetProjectMembers(req: Request): Promise<Response> {
 }
 
 // Budget tracking endpoints
-async function handleGetProjectBudget(req: Request): Promise<Response> {
+async function _handleGetProjectBudget(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -545,7 +549,7 @@ async function handleGetProjectBudget(req: Request): Promise<Response> {
 }
 
 // Profit sharing endpoints
-async function handleDistributeProfits(req: Request): Promise<Response> {
+async function _handleDistributeProfits(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -721,7 +725,7 @@ async function handleDistributeProfits(req: Request): Promise<Response> {
   }
 }
 
-async function handleGetProfitShares(req: Request): Promise<Response> {
+async function _handleGetProfitShares(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -765,7 +769,7 @@ async function handleGetProfitShares(req: Request): Promise<Response> {
 }
 
 // Financial tracking endpoints
-async function handleCreatePayPeriod(req: Request): Promise<Response> {
+async function _handleCreatePayPeriod(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -801,7 +805,7 @@ async function handleCreatePayPeriod(req: Request): Promise<Response> {
   }
 }
 
-async function handleGetPayPeriods(req: Request): Promise<Response> {
+async function _handleGetPayPeriods(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -830,7 +834,7 @@ async function handleGetPayPeriods(req: Request): Promise<Response> {
   }
 }
 
-async function handleGetUserFinancials(req: Request): Promise<Response> {
+async function _handleGetUserFinancials(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -872,7 +876,7 @@ async function handleGetUserFinancials(req: Request): Promise<Response> {
   }
 }
 
-async function handleGetProjectFinancials(req: Request): Promise<Response> {
+async function _handleGetProjectFinancials(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -919,7 +923,7 @@ async function handleGetProjectFinancials(req: Request): Promise<Response> {
   }
 }
 
-async function handleStartTimer(req: Request): Promise<Response> {
+async function _handleStartTimer(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -954,7 +958,7 @@ async function handleStartTimer(req: Request): Promise<Response> {
   }
 }
 
-async function handleStopTimer(req: Request): Promise<Response> {
+async function _handleStopTimer(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -978,7 +982,7 @@ async function handleStopTimer(req: Request): Promise<Response> {
   }
 }
 
-async function handleGetActiveTimer(req: Request): Promise<Response> {
+async function _handleGetActiveTimer(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -1037,7 +1041,7 @@ async function handleGetActiveTimer(req: Request): Promise<Response> {
   }
 }
 
-async function handleGetProjectActiveTimers(req: Request): Promise<Response> {
+async function _handleGetProjectActiveTimers(req: Request): Promise<Response> {
   const user = await authenticate(req);
   if (!user) {
     return new Response(
@@ -1163,7 +1167,14 @@ export async function router(req: Request): Promise<Response> {
           { status: Status.Unauthorized, headers }
         );
       }
-      const entries = await getTimeEntriesByUser(user.id);
+      const url = new URL(req.url);
+      const startDate = url.searchParams.get("startDate") || new Date().toISOString();
+      const endDate = url.searchParams.get("endDate") || new Date().toISOString();
+      const entries = await getTimeEntriesByUser(
+        user.id,
+        new Date(startDate),
+        new Date(endDate)
+      );
       return new Response(
         JSON.stringify(createResponse(entries)),
         { status: Status.OK, headers }
@@ -1195,7 +1206,7 @@ export async function router(req: Request): Promise<Response> {
           { status: Status.Unauthorized, headers }
         );
       }
-      const timer = await stopTimer({ userId: user.id });
+      const timer = await stopTimer(user.id);
       return new Response(
         JSON.stringify(createResponse(timer)),
         { status: Status.OK, headers }
@@ -1211,7 +1222,7 @@ export async function router(req: Request): Promise<Response> {
           { status: Status.Unauthorized, headers }
         );
       }
-      const summary = await getUserFinancialSummaries({ userId: user.id });
+      const summary = await getUserFinancialSummaries(user.id);
       return new Response(
         JSON.stringify(createResponse(summary)),
         { status: Status.OK, headers }
@@ -1227,7 +1238,7 @@ export async function router(req: Request): Promise<Response> {
         );
       }
       const projectId = path.split("/").pop();
-      const summary = await getProjectFinancialSummaries({ projectId: projectId! });
+      const summary = await getProjectFinancialSummaries(projectId!);
       return new Response(
         JSON.stringify(createResponse(summary)),
         { status: Status.OK, headers }
