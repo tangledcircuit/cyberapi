@@ -51,7 +51,6 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 // Project operations
 export async function createProject(project: Project): Promise<void> {
   const projectKey = createKey(["project", project.id]);
-  const clientIndexKey = createKey(["project_client", project.clientId, project.id]);
   const memberKey = createKey(["project_member", project.id, project.ownerId]);
   
   const member: ProjectMember = {
@@ -67,7 +66,6 @@ export async function createProject(project: Project): Promise<void> {
   const atomic = kv.atomic();
   atomic
     .set(projectKey, project)
-    .set(clientIndexKey, { projectId: project.id })
     .set(memberKey, member);
   
   const result = await atomic.commit();
@@ -445,16 +443,22 @@ export async function createProjectFinancialSummary(summary: ProjectFinancialSum
 
 export async function getProjectFinancialSummaries(
   projectId: string,
-  startDate: string,
-  endDate: string
+  startDate?: string,
+  endDate?: string
 ): Promise<ProjectFinancialSummary[]> {
-  const prefix = createKey(["project_summary", projectId]);
+  const prefix = createKey(["project_financial_summary", projectId]);
   const summaries: ProjectFinancialSummary[] = [];
   
   for await (const entry of kv.list<ProjectFinancialSummary>({ prefix })) {
-    const periodDate = entry.key[2] as string;
-    if (periodDate >= startDate && periodDate <= endDate) {
-      summaries.push(entry.value);
+    if (entry.value) {
+      // Filter by date range if provided
+      if (startDate && endDate) {
+        if (entry.value.period.startDate >= startDate && entry.value.period.endDate <= endDate) {
+          summaries.push(entry.value);
+        }
+      } else {
+        summaries.push(entry.value);
+      }
     }
   }
   
@@ -468,16 +472,22 @@ export async function createUserFinancialSummary(summary: UserFinancialSummary):
 
 export async function getUserFinancialSummaries(
   userId: string,
-  startDate: string,
-  endDate: string
+  startDate?: string,
+  endDate?: string
 ): Promise<UserFinancialSummary[]> {
-  const prefix = createKey(["user_summary", userId]);
+  const prefix = createKey(["user_financial_summary", userId]);
   const summaries: UserFinancialSummary[] = [];
   
   for await (const entry of kv.list<UserFinancialSummary>({ prefix })) {
-    const periodDate = entry.key[2] as string;
-    if (periodDate >= startDate && periodDate <= endDate) {
-      summaries.push(entry.value);
+    if (entry.value) {
+      // Filter by date range if provided
+      if (startDate && endDate) {
+        if (entry.value.period.startDate >= startDate && entry.value.period.endDate <= endDate) {
+          summaries.push(entry.value);
+        }
+      } else {
+        summaries.push(entry.value);
+      }
     }
   }
   
@@ -502,25 +512,36 @@ export async function updateProjectMemberFinancials(
 }
 
 // Active timer operations
-export async function startTimer(timer: ActiveTimer): Promise<void> {
-  const timerKey = createKey(["active_timer", timer.id]);
-  const userIndexKey = createKey(["active_timer_user", timer.userId, timer.id]);
-  const projectIndexKey = createKey(["active_timer_project", timer.projectId, timer.id]);
-
+export async function startTimer(timer: Partial<ActiveTimer>): Promise<ActiveTimer> {
   // Check if user already has an active timer
-  const existingTimer = await getActiveTimerByUser(timer.userId);
+  const existingTimer = await getActiveTimerByUser(timer.userId!);
   if (existingTimer) {
     throw new Error("User already has an active timer");
   }
 
+  const newTimer: ActiveTimer = {
+    id: crypto.randomUUID(),
+    userId: timer.userId!,
+    projectId: timer.projectId!,
+    description: timer.description || "",
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const timerKey = createKey(["timer", newTimer.id]);
+  const userIndexKey = createKey(["timer_user", newTimer.userId]);
+  const projectIndexKey = createKey(["timer_project", newTimer.projectId, newTimer.id]);
+
   const atomic = kv.atomic();
   atomic
-    .set(timerKey, timer)
-    .set(userIndexKey, { timerId: timer.id })
-    .set(projectIndexKey, { timerId: timer.id });
+    .set(timerKey, newTimer)
+    .set(userIndexKey, { timerId: newTimer.id })
+    .set(projectIndexKey, { timerId: newTimer.id });
 
   const result = await atomic.commit();
   if (!result.ok) throw new Error("Failed to start timer");
+
+  return newTimer;
 }
 
 export async function stopTimer(userId: string): Promise<TimeEntry> {
@@ -529,35 +550,41 @@ export async function stopTimer(userId: string): Promise<TimeEntry> {
     throw new Error("No active timer found");
   }
 
-  // Calculate duration and create time entry
+  // Calculate duration
   const startTime = new Date(timer.startedAt);
   const endTime = new Date();
-  const hours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60); // Convert ms to hours
+  const hours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
 
+  // Create time entry
   const timeEntry: TimeEntry = {
     id: crypto.randomUUID(),
     projectId: timer.projectId,
     userId: timer.userId,
     description: timer.description,
     hours,
-    date: startTime.toISOString(),
     costImpact: 0, // Will be calculated in createTimeEntry
+    date: timer.startedAt,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
-  // Delete timer and create time entry atomically
+  // Delete timer and create time entry
+  const timerKey = createKey(["timer", timer.id]);
+  const userIndexKey = createKey(["timer_user", timer.userId]);
+  const projectIndexKey = createKey(["timer_project", timer.projectId, timer.id]);
+
   const atomic = kv.atomic();
   atomic
-    .delete(createKey(["active_timer", timer.id]))
-    .delete(createKey(["active_timer_user", timer.userId, timer.id]))
-    .delete(createKey(["active_timer_project", timer.projectId, timer.id]));
+    .delete(timerKey)
+    .delete(userIndexKey)
+    .delete(projectIndexKey);
 
   const result = await atomic.commit();
   if (!result.ok) throw new Error("Failed to stop timer");
 
   // Create the time entry
   await createTimeEntry(timeEntry);
+
   return timeEntry;
 }
 
