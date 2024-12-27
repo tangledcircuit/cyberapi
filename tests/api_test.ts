@@ -3,6 +3,14 @@ import { describe, it, beforeAll, afterAll } from "std/testing/bdd.ts";
 import { Status } from "std/http/http_status.ts";
 import { serve } from "std/http/server.ts";
 import { router } from "../api.ts";
+import { kv } from "../db.ts";
+
+// Helper function to clear the database
+async function clearDatabase() {
+  for await (const entry of kv.list({ prefix: [] })) {
+    await kv.delete(entry.key);
+  }
+}
 
 // Mock data
 const testUser = {
@@ -15,16 +23,21 @@ const testUser = {
 
 const testProject = {
   name: "Test Project",
-  description: "A test project",
+  description: "Testing financial summaries",
   budget: 10000,
   clientId: "client123",
+  profitSharingEnabled: true,
 };
 
-const testTimeEntry = {
-  projectId: "project123",
-  description: "Working on tests",
-  hours: 2,
-  date: new Date().toISOString(),
+const testTimeEntry: {
+  projectId?: string;
+  description: string;
+  hours: number;
+  date: string;
+} = {
+  description: "Testing financial summaries",
+  hours: 4,
+  date: new Date("2024-12-20T12:00:00.000Z").toISOString(),
 };
 
 // Helper function to make API calls
@@ -53,11 +66,15 @@ async function makeRequest(
 
 describe("API Tests", () => {
   let authToken: string;
-  let _userId: string;
+  let userId: string;
+  let projectId: string;
   let controller: AbortController;
 
   // Start server before all tests
   beforeAll(async () => {
+    // Clear the database first
+    await clearDatabase();
+    
     controller = new AbortController();
     const signal = controller.signal;
     
@@ -94,7 +111,7 @@ describe("API Tests", () => {
       assertEquals(data.data.hourlyRate, testUser.hourlyRate);
       
       // Store userId for later tests
-      _userId = data.data.id;
+      userId = data.data.id;
     });
 
     it("should login with valid credentials", async () => {
@@ -141,8 +158,14 @@ describe("API Tests", () => {
       assertExists(data.data.id);
       assertEquals(data.data.name, testProject.name);
       assertEquals(data.data.budget, testProject.budget);
+      assertEquals(data.data.profitSharingEnabled, testProject.profitSharingEnabled);
+      assertEquals(data.data.remainingBudget, testProject.budget);
+      assertEquals(data.data.bonusPool, 0);
+      assertEquals(data.data.ownerId, userId);
+      assertEquals(data.data.status, "PLANNED");
       
-      // Store projectId for time entry tests
+      // Store projectId for later tests
+      projectId = data.data.id;
       testTimeEntry.projectId = data.data.id;
     });
   });
@@ -167,14 +190,12 @@ describe("API Tests", () => {
       assertExists(data.data.id);
       assertEquals(data.data.projectId, testTimeEntry.projectId);
       assertEquals(data.data.hours, testTimeEntry.hours);
+      assertEquals(data.data.costImpact, testTimeEntry.hours * testUser.hourlyRate);
     });
 
     it("should get time entries for authenticated user", async () => {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 1);
-      
-      const endDate = new Date();
-      endDate.setDate(endDate.getDate() + 1);
+      const startDate = new Date("2024-12-19T00:00:00.000Z");
+      const endDate = new Date("2024-12-21T23:59:59.999Z");
 
       const response = await makeRequest(
         "GET",
@@ -187,6 +208,139 @@ describe("API Tests", () => {
       const data = await response.json();
       assertEquals(Array.isArray(data.data), true);
       assertEquals(data.data.length, 1);
+      assertEquals(data.data[0].hours, testTimeEntry.hours);
+      assertEquals(data.data[0].costImpact, testTimeEntry.hours * testUser.hourlyRate);
+    });
+  });
+
+  describe("Financial Tracking", () => {
+    it("should get user financial summary showing regular earnings", async () => {
+      const startDate = "2024-12-01T00:00:00.000Z";
+      const endDate = "2024-12-31T23:59:59.999Z";
+
+      const response = await makeRequest(
+        "GET",
+        `/financials/user?startDate=${startDate}&endDate=${endDate}`,
+        undefined,
+        authToken,
+      );
+      assertEquals(response.status, Status.OK);
+
+      const data = await response.json();
+      assertExists(data.data.summaries);
+      assertEquals(data.data.summaries.length >= 1, true);
+
+      const summary = data.data.summaries[0];
+      assertEquals(summary.totalHoursWorked, testTimeEntry.hours);
+      assertEquals(summary.totalRegularEarnings, testTimeEntry.hours * testUser.hourlyRate);
+      assertEquals(summary.totalBonusEarnings, 0);
+      assertEquals(summary.totalEarnings, testTimeEntry.hours * testUser.hourlyRate);
+
+      assertEquals(summary.projectEarnings.length, 1);
+      assertEquals(summary.projectEarnings[0].projectId, projectId);
+      assertEquals(summary.projectEarnings[0].hoursWorked, testTimeEntry.hours);
+      assertEquals(summary.projectEarnings[0].regularEarnings, testTimeEntry.hours * testUser.hourlyRate);
+      assertEquals(summary.projectEarnings[0].bonusEarnings, 0);
+      assertEquals(summary.projectEarnings[0].totalEarnings, testTimeEntry.hours * testUser.hourlyRate);
+    });
+
+    it("should get project financial summary showing regular earnings", async () => {
+      const startDate = "2024-12-01T00:00:00.000Z";
+      const endDate = "2024-12-31T23:59:59.999Z";
+
+      const response = await makeRequest(
+        "GET",
+        `/financials/project?projectId=${projectId}&startDate=${startDate}&endDate=${endDate}`,
+        undefined,
+        authToken,
+      );
+      assertEquals(response.status, Status.OK);
+
+      const data = await response.json();
+      assertExists(data.data.summaries);
+      assertEquals(data.data.summaries.length >= 1, true);
+
+      const summary = data.data.summaries[0];
+      assertEquals(summary.totalBudget, testProject.budget);
+      assertEquals(summary.totalSpent, testTimeEntry.hours * testUser.hourlyRate);
+      assertEquals(summary.totalBonusesDistributed, 0);
+
+      assertEquals(summary.memberSummaries.length, 1);
+      assertEquals(summary.memberSummaries[0].userId, userId);
+      assertEquals(summary.memberSummaries[0].hoursWorked, testTimeEntry.hours);
+      assertEquals(summary.memberSummaries[0].regularEarnings, testTimeEntry.hours * testUser.hourlyRate);
+      assertEquals(summary.memberSummaries[0].bonusEarnings, 0);
+      assertEquals(summary.memberSummaries[0].totalEarnings, testTimeEntry.hours * testUser.hourlyRate);
+    });
+
+    it("should distribute profits and update financial summaries", async () => {
+      // Distribute profits
+      const bonusAmount = 1000;
+      const response = await makeRequest(
+        "POST",
+        "/projects/profits/distribute",
+        {
+          projectId,
+          amount: bonusAmount,
+        },
+        authToken,
+      );
+      assertEquals(response.status, Status.Created);
+
+      const data = await response.json();
+      assertExists(data.data);
+      assertEquals(Array.isArray(data.data), true);
+      assertEquals(data.data.length, 1);
+      assertEquals(data.data[0].amount, bonusAmount);
+      assertEquals(data.data[0].percentage, 100);
+      assertEquals(data.data[0].status, "PENDING");
+
+      // Check user financial summary after bonus
+      const startDate = "2024-12-01T00:00:00.000Z";
+      const endDate = "2024-12-31T23:59:59.999Z";
+
+      const userResponse = await makeRequest(
+        "GET",
+        `/financials/user?startDate=${startDate}&endDate=${endDate}`,
+        undefined,
+        authToken,
+      );
+      assertEquals(userResponse.status, Status.OK);
+
+      const userData = await userResponse.json();
+      assertExists(userData.data.summaries);
+      assertEquals(userData.data.summaries.length >= 2, true);
+
+      const bonusSummary = userData.data.summaries[1];
+      assertEquals(bonusSummary.totalHoursWorked, 0);
+      assertEquals(bonusSummary.totalRegularEarnings, 0);
+      assertEquals(bonusSummary.totalBonusEarnings, bonusAmount);
+      assertEquals(bonusSummary.totalEarnings, bonusAmount);
+
+      // Check project financial summary after bonus
+      const projectResponse = await makeRequest(
+        "GET",
+        `/financials/project?projectId=${projectId}&startDate=${startDate}&endDate=${endDate}`,
+        undefined,
+        authToken,
+      );
+      assertEquals(projectResponse.status, Status.OK);
+
+      const projectData = await projectResponse.json();
+      assertExists(projectData.data.summaries);
+      assertEquals(projectData.data.summaries.length >= 2, true);
+
+      const projectBonusSummary = projectData.data.summaries[1];
+      assertEquals(projectBonusSummary.totalBudget, testProject.budget);
+      assertEquals(projectBonusSummary.totalSpent, bonusAmount);
+      assertEquals(projectBonusSummary.totalBonusesDistributed, bonusAmount);
+
+      assertEquals(projectBonusSummary.memberSummaries.length, 1);
+      assertEquals(projectBonusSummary.memberSummaries[0].userId, userId);
+      assertEquals(projectBonusSummary.memberSummaries[0].hoursWorked, 0);
+      assertEquals(projectBonusSummary.memberSummaries[0].regularEarnings, 0);
+      assertEquals(projectBonusSummary.memberSummaries[0].bonusEarnings, bonusAmount);
+      assertEquals(projectBonusSummary.memberSummaries[0].totalEarnings, bonusAmount);
     });
   });
 

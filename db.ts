@@ -489,8 +489,8 @@ export async function updateProjectMemberFinancials(
   projectId: string,
   userId: string,
   hoursWorked: number,
-  regularEarnings: number,
-  bonusEarnings: number
+  _regularEarnings: number,
+  _bonusEarnings: number
 ): Promise<void> {
   const member = await getProjectMember(projectId, userId);
   if (!member) throw new Error("Member not found");
