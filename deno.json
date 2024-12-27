@@ -1,0 +1,26 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-net --allow-read --allow-env --unstable api.ts",
+    "cache": "deno cache --unstable api.ts"
+  },
+  "imports": {
+    "std/": "https://deno.land/std@0.201.0/"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "allowJs": false,
+    "lib": ["deno.window", "deno.unstable"]
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  },
+  "fmt": {
+    "options": {
+      "indentWidth": 2,
+      "lineWidth": 80,
+      "singleQuote": false
+    }
+  }
+}
