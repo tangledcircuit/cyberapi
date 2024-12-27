@@ -1,8 +1,5 @@
-export function add(a: number, b: number): number {
-  return a + b;
-}
+import { serve } from "std/http/server.ts";
+import { router } from "./api.ts";
 
-// Learn more at https://docs.deno.com/runtime/manual/examples/module_metadata#concepts
-if (import.meta.main) {
-  console.log("Add 2 + 3 =", add(2, 3));
-}
+// Serve the API on port 8000
+serve(router, { port: 8000 });
