@@ -1,6 +1,8 @@
 import { assertEquals, assertExists } from "std/testing/asserts.ts";
-import { describe, it } from "std/testing/bdd.ts";
+import { describe, it, beforeAll, afterAll } from "std/testing/bdd.ts";
 import { Status } from "std/http/http_status.ts";
+import { serve } from "std/http/server.ts";
+import { router } from "../api.ts";
 
 // Mock data
 const testUser = {
@@ -52,6 +54,32 @@ async function makeRequest(
 describe("API Tests", () => {
   let authToken: string;
   let _userId: string;
+  let controller: AbortController;
+
+  // Start server before all tests
+  beforeAll(async () => {
+    controller = new AbortController();
+    const signal = controller.signal;
+    
+    // Start server in the background
+    (async () => {
+      try {
+        await serve(router, { port: 8000, signal });
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name !== "AbortError") {
+          throw error;
+        }
+      }
+    })();
+
+    // Wait for server to be ready
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  });
+
+  // Stop server after all tests
+  afterAll(() => {
+    controller.abort();
+  });
 
   describe("User Authentication", () => {
     it("should create a new user", async () => {
@@ -89,6 +117,7 @@ describe("API Tests", () => {
         password: "wrongpassword",
       });
       assertEquals(response.status, Status.Unauthorized);
+      await response.text(); // Consume response body
     });
   });
 
@@ -96,6 +125,7 @@ describe("API Tests", () => {
     it("should require authentication for creating projects", async () => {
       const response = await makeRequest("POST", "/projects", testProject);
       assertEquals(response.status, Status.Unauthorized);
+      await response.text(); // Consume response body
     });
 
     it("should create a new project when authenticated", async () => {
@@ -121,6 +151,7 @@ describe("API Tests", () => {
     it("should require authentication for creating time entries", async () => {
       const response = await makeRequest("POST", "/time-entries", testTimeEntry);
       assertEquals(response.status, Status.Unauthorized);
+      await response.text(); // Consume response body
     });
 
     it("should create a new time entry when authenticated", async () => {
@@ -155,7 +186,7 @@ describe("API Tests", () => {
 
       const data = await response.json();
       assertEquals(Array.isArray(data.data), true);
-      assertEquals(data.data.length >= 1, true);
+      assertEquals(data.data.length, 1);
     });
   });
 
@@ -168,6 +199,7 @@ describe("API Tests", () => {
         authToken,
       );
       assertEquals(response.status, Status.OK);
+      await response.text(); // Consume response body
 
       // Verify token is invalid after logout
       const projectResponse = await makeRequest(
@@ -177,6 +209,7 @@ describe("API Tests", () => {
         authToken,
       );
       assertEquals(projectResponse.status, Status.Unauthorized);
+      await projectResponse.text(); // Consume response body
     });
   });
 }); 

@@ -67,9 +67,11 @@ export async function getProjectById(id: string): Promise<Project | null> {
 
 // Time entry operations
 export async function createTimeEntry(entry: TimeEntry): Promise<void> {
-  const timeKey = createKey(["time", entry.projectId, entry.userId, entry.id]);
-  const userIndexKey = createKey(["time_user", entry.userId, entry.date.toISOString(), entry.id]);
-  const projectIndexKey = createKey(["time_project", entry.projectId, entry.date.toISOString(), entry.id]);
+  const timeKey = createKey(["time", entry.id]);
+  const userIndexKey = createKey(["time_user", entry.userId, entry.date, entry.id]);
+  const projectIndexKey = createKey(["time_project", entry.projectId, entry.date, entry.id]);
+  
+  console.log("Creating time entry:", { entry, timeKey, userIndexKey, projectIndexKey });
   
   const atomic = kv.atomic();
   atomic
@@ -78,6 +80,7 @@ export async function createTimeEntry(entry: TimeEntry): Promise<void> {
     .set(projectIndexKey, { entryId: entry.id });
   
   const result = await atomic.commit();
+  console.log("Time entry creation result:", result);
   if (!result.ok) throw new Error("Failed to create time entry");
 }
 
@@ -85,13 +88,25 @@ export async function getTimeEntriesByUser(userId: string, startDate: Date, endD
   const entries: TimeEntry[] = [];
   const prefix = createKey(["time_user", userId]);
   
+  console.log("Getting time entries for user:", userId);
+  console.log("Date range:", { startDate, endDate });
+  
   for await (const entry of kv.list<{ entryId: string }>({ prefix })) {
+    console.log("Found entry:", entry);
     const timeEntry = await kv.get<TimeEntry>(createKey(["time", entry.value.entryId]));
-    if (timeEntry.value && timeEntry.value.date >= startDate && timeEntry.value.date <= endDate) {
-      entries.push(timeEntry.value);
+    console.log("Time entry details:", timeEntry);
+    
+    // Parse the date from the entry key
+    const entryDate = new Date(entry.key[2] as string);
+    if (entryDate >= startDate && entryDate <= endDate) {
+      const fullEntry = await kv.get<TimeEntry>(createKey(["time", entry.value.entryId]));
+      if (fullEntry.value) {
+        entries.push(fullEntry.value);
+      }
     }
   }
   
+  console.log("Returning entries:", entries);
   return entries;
 }
 

@@ -244,7 +244,7 @@ async function handleLogout(req: Request): Promise<Response> {
 }
 
 // Router
-async function router(req: Request): Promise<Response> {
+export async function router(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
   
@@ -302,6 +302,8 @@ async function router(req: Request): Promise<Response> {
 }
 
 // Start the server
-const port = 8000;
-console.log(`Server running on http://localhost:${port}`);
-await serve(router, { port }); 
+if (import.meta.main) {
+  const port = 8000;
+  console.log(`Server running on http://localhost:${port}`);
+  await serve(router, { port });
+} 
