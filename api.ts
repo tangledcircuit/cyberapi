@@ -199,11 +199,15 @@ async function handleCreateProject(req: Request): Promise<Response> {
   try {
     const projectData = await req.json();
     const project: Project = {
-      ...projectData,
       id: crypto.randomUUID(),
+      name: projectData.name,
+      description: projectData.description,
+      budget: projectData.budget,
+      remainingBudget: projectData.budget,
+      clientId: projectData.clientId || "", // Optional, default to empty string
       ownerId: user.id,
       status: ProjectStatus.PLANNED,
-      remainingBudget: projectData.budget,
+      profitSharingEnabled: projectData.profitSharingEnabled || false,
       bonusPool: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -216,6 +220,7 @@ async function handleCreateProject(req: Request): Promise<Response> {
       { status: Status.Created }
     );
   } catch (error: unknown) {
+    console.error("Project creation error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
     return new Response(
       JSON.stringify(createResponse(null, errorMessage)),
