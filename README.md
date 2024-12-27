@@ -1,187 +1,279 @@
-# Project Time Tracking API
+# Time Tracking & Profit Sharing API
 
-A RESTful API for tracking project time entries with user authentication and project management.
+A Deno-based API for tracking time, managing projects, and distributing profits among team members.
 
-## API Endpoints
+## Getting Started
 
-All responses follow this format:
-```json
+### Prerequisites
+- Deno 1.x or higher
+- Deno KV enabled
+
+### Installation
+```bash
+# Clone the repository
+git clone [repository-url]
+
+# Navigate to project directory
+cd [project-directory]
+
+# Start the development server
+deno task dev
+```
+
+## API Documentation
+
+### Authentication
+All authenticated endpoints require a Bearer token in the Authorization header:
+```
+Authorization: Bearer <userId>:<authToken>
+```
+
+### Users
+
+#### Create User
+```http
+POST /users
+Content-Type: application/json
+
 {
-  "success": true,
-  "data": {}, // Response data
-  "timestamp": "2023-09-20T12:34:56.789Z"
+  "email": "user@example.com",
+  "password": "password123",
+  "firstName": "John",
+  "lastName": "Doe",
+  "hourlyRate": 100
 }
 ```
 
-### Authentication
-
-#### Create User
-```bash
-curl -X POST http://localhost:8000/users \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "yourpassword",
-    "firstName": "John",
-    "lastName": "Doe",
-    "hourlyRate": 100
-  }'
-```
-
 #### Login
-```bash
-curl -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "yourpassword"
-  }'
-```
-Response includes a token in format: `userId:token`
+```http
+POST /auth/login
+Content-Type: application/json
 
-#### Logout
-```bash
-curl -X DELETE http://localhost:8000/auth/logout \
-  -H "Authorization: Bearer YOUR_TOKEN"
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "token": "auth-token-here",
+    "user": {
+      "id": "user-id",
+      "email": "user@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "hourlyRate": 100
+    }
+  }
+}
 ```
 
 ### Projects
 
 #### Create Project
-```bash
-curl -X POST http://localhost:8000/projects \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "name": "Project Name",
-    "description": "Project Description",
-    "budget": 10000,
-    "clientId": "client123"
-  }'
+```http
+POST /projects
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "Project Name",
+  "description": "Project Description",
+  "budget": 10000,
+  "clientId": "client-id",
+  "profitSharingEnabled": true
+}
 ```
 
-### Time Entries
+#### Invite User to Project
+```http
+POST /projects/invite
+Authorization: Bearer <token>
+Content-Type: application/json
 
-#### Create Time Entry
-```bash
-curl -X POST http://localhost:8000/time-entries \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "projectId": "project123",
-    "description": "Work description",
-    "hours": 2,
-    "date": "2023-09-20T12:00:00.000Z"
-  }'
+{
+  "projectId": "project-id",
+  "email": "user@example.com",
+  "role": "MEMBER",
+  "hourlyRate": 80
+}
 ```
 
-#### Get Time Entries
-```bash
-curl -X GET "http://localhost:8000/time-entries?startDate=2023-09-19T00:00:00.000Z&endDate=2023-09-21T00:00:00.000Z" \
-  -H "Authorization: Bearer YOUR_TOKEN"
+#### Accept Project Invitation
+```http
+POST /projects/invitations/respond
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "invitationId": "invitation-id",
+  "accept": true
+}
 ```
 
-## Notes for AI Integration
+### Time Tracking
 
-1. **Authentication Flow**:
-   - Create user first
-   - Login to get token
-   - Use token in all subsequent requests
-   - Logout when done
+#### Start Timer
+```http
+POST /timer/start
+Authorization: Bearer <token>
+Content-Type: application/json
 
-2. **Date Handling**:
-   - All dates should be in ISO 8601 format
-   - Time entries use UTC timezone
+{
+  "projectId": "project-id",
+  "description": "Task description"
+}
+```
 
-3. **Error Handling**:
-   - Failed requests return error in format:
-     ```json
-     {
-       "success": false,
-       "error": "Error message",
-       "timestamp": "2023-09-20T12:34:56.789Z"
-     }
-     ```
-   - Common HTTP status codes:
-     - 200: Success
-     - 201: Created
-     - 401: Unauthorized
-     - 404: Not Found
-     - 500: Server Error
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "timer-id",
+    "projectId": "project-id",
+    "userId": "user-id",
+    "description": "Task description",
+    "startedAt": "2024-12-27T02:19:33.640Z"
+  }
+}
+```
 
-4. **Token Format**:
-   - Token format is `userId:token`
-   - Must be included in Authorization header as `Bearer userId:token`
-   - Tokens expire after 24 hours
+#### Stop Timer
+```http
+POST /timer/stop
+Authorization: Bearer <token>
+```
 
-5. **Rate Limits**:
-   - No rate limits implemented yet
-   - Plan for reasonable request frequency
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "time-entry-id",
+    "projectId": "project-id",
+    "userId": "user-id",
+    "description": "Task description",
+    "hours": 0.034,
+    "costImpact": 3.43,
+    "date": "2024-12-27T02:19:33.640Z"
+  }
+}
+```
 
-## Example AI Integration Flow
+#### Get Active Timer Status
+```http
+GET /timer/status
+Authorization: Bearer <token>
+```
 
-```python
-import requests
-import json
+#### Get Project Active Timers
+```http
+GET /timer/project?projectId=project-id
+Authorization: Bearer <token>
+```
 
-# 1. Create user
-user_response = requests.post(
-    "http://localhost:8000/users",
-    json={
-        "email": "ai@example.com",
-        "password": "aipassword",
-        "firstName": "AI",
-        "lastName": "Assistant",
-        "hourlyRate": 0
-    }
-)
+### Financial Management
 
-# 2. Login
-login_response = requests.post(
-    "http://localhost:8000/auth/login",
-    json={
-        "email": "ai@example.com",
-        "password": "aipassword"
-    }
-)
-token = login_response.json()["data"]["token"]
+#### Get User Financials
+```http
+GET /financials/user
+  ?userId=user-id
+  &startDate=2024-12-01T00:00:00.000Z
+  &endDate=2024-12-31T23:59:59.999Z
+Authorization: Bearer <token>
+```
 
-# 3. Create project
-project_response = requests.post(
-    "http://localhost:8000/projects",
-    headers={"Authorization": f"Bearer {token}"},
-    json={
-        "name": "AI Project",
-        "description": "AI-managed project",
-        "budget": 10000,
-        "clientId": "ai_client"
-    }
-)
-project_id = project_response.json()["data"]["id"]
+Note: To view another user's financials, you must either:
+- Be the user themselves
+- Include a projectId parameter where you are the project owner
 
-# 4. Create time entry
-time_entry_response = requests.post(
-    "http://localhost:8000/time-entries",
-    headers={"Authorization": f"Bearer {token}"},
-    json={
-        "projectId": project_id,
-        "description": "AI processing",
-        "hours": 1,
-        "date": "2023-09-20T12:00:00.000Z"
-    }
-)
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "summaries": [
+      {
+        "id": "summary-id",
+        "userId": "user-id",
+        "period": {
+          "startDate": "2024-12-01T06:00:00.000Z",
+          "endDate": "2024-12-31T06:00:00.000Z"
+        },
+        "projectEarnings": [
+          {
+            "projectId": "project-id",
+            "hoursWorked": 0.034,
+            "regularEarnings": 2.71,
+            "bonusEarnings": 497.21,
+            "totalEarnings": 499.92
+          }
+        ],
+        "totalHoursWorked": 0.034,
+        "totalRegularEarnings": 2.71,
+        "totalBonusEarnings": 497.21,
+        "totalEarnings": 499.92
+      }
+    ]
+  }
+}
+```
 
-# 5. Get time entries
-from_date = "2023-09-19T00:00:00.000Z"
-to_date = "2023-09-21T00:00:00.000Z"
-entries_response = requests.get(
-    f"http://localhost:8000/time-entries?startDate={from_date}&endDate={to_date}",
-    headers={"Authorization": f"Bearer {token}"}
-)
+#### Distribute Project Profits
+```http
+POST /projects/profits/distribute
+Authorization: Bearer <token>
+Content-Type: application/json
 
-# 6. Logout when done
-logout_response = requests.delete(
-    "http://localhost:8000/auth/logout",
-    headers={"Authorization": f"Bearer {token}"}
-)
-``` 
+{
+  "projectId": "project-id",
+  "amount": 1000
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "distributions": [
+      {
+        "userId": "user-id",
+        "amount": 502.79,
+        "percentage": 50.28
+      }
+    ]
+  }
+}
+```
+
+## Error Handling
+
+All endpoints return errors in the following format:
+```json
+{
+  "success": false,
+  "error": "Error message here",
+  "timestamp": "2024-12-27T02:21:37.175Z"
+}
+```
+
+Common HTTP status codes:
+- 200: Success
+- 400: Bad Request
+- 401: Unauthorized
+- 403: Forbidden
+- 404: Not Found
+- 500: Internal Server Error
+
+## Security Considerations
+
+1. All passwords are hashed before storage
+2. Authentication tokens expire after 24 hours
+3. Project owners can view team member financials only for their projects
+4. Users can only view their own financial data unless they have project owner permissions 
