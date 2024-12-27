@@ -25,6 +25,7 @@ import {
   stopTimer,
   getActiveTimerByUser,
   getActiveTimersByProject,
+  createProjectMember,
 } from "./db.ts";
 import {
   User,
@@ -214,6 +215,14 @@ async function handleCreateProject(req: Request): Promise<Response> {
     };
     
     await createProject(project);
+
+    // Add owner as a project member
+    await createProjectMember({
+      projectId: project.id,
+      userId: user.id,
+      role: "OWNER",
+      hourlyRate: user.hourlyRate,
+    });
     
     return new Response(
       JSON.stringify(createResponse(project)),
@@ -1139,6 +1148,29 @@ export async function router(req: Request): Promise<Response> {
     // Project routes
     if (path === "/api/projects" && req.method === "POST") {
       return await handleCreateProject(req);
+    }
+
+    if (path === "/api/projects/members" && req.method === "POST") {
+      const user = await authenticate(req);
+      if (!user) {
+        return new Response(
+          JSON.stringify(createResponse(null, "Unauthorized")),
+          { status: Status.Unauthorized, headers }
+        );
+      }
+
+      const { projectId, userId, role, hourlyRate } = await req.json();
+      const member = await createProjectMember({
+        projectId,
+        userId,
+        role,
+        hourlyRate,
+      });
+
+      return new Response(
+        JSON.stringify(createResponse(member)),
+        { status: Status.OK, headers }
+      );
     }
 
     // Time entry routes
