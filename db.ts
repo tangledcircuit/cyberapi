@@ -49,33 +49,36 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 }
 
 // Project operations
-export async function createProject(project: Project): Promise<void> {
-  const projectKey = createKey(["project", project.id]);
-  const memberKey = createKey(["project_member", project.id, project.ownerId]);
-  
-  const member: ProjectMember = {
-    projectId: project.id,
-    userId: project.ownerId,
-    role: ProjectRole.OWNER,
-    hourlyRate: (await getUserById(project.ownerId))?.hourlyRate || 0,
-    totalHours: 0,
-    joinedAt: project.createdAt,
-    updatedAt: project.createdAt,
-  };
-  
+export async function createProject(project: Project): Promise<Project> {
+  console.log("Creating project:", project);
   const atomic = kv.atomic();
-  atomic
-    .set(projectKey, project)
-    .set(memberKey, member);
+  
+  // Store project
+  const projectKey = createKey(["project", project.id]);
+  atomic.set(projectKey, project);
+  
+  // Create owner index
+  const ownerKey = createKey(["project_owner", project.ownerId, project.id]);
+  atomic.set(ownerKey, { projectId: project.id });
+  
+  console.log("Setting project with keys:", { projectKey, ownerKey });
   
   const result = await atomic.commit();
-  if (!result.ok) throw new Error("Failed to create project");
+  console.log("Project creation result:", result);
+  if (!result.ok) {
+    throw new Error("Failed to create project");
+  }
+  
+  return project;
 }
 
 export async function getProjectById(projectId: string): Promise<Project | null> {
+  console.log("Getting project by ID:", projectId);
   const key = createKey(["project", projectId]);
-  const result = await kv.get<Project>(key);
-  return result.value;
+  console.log("Using key:", key);
+  const project = await kv.get<Project>(key);
+  console.log("Found project:", project);
+  return project.value;
 }
 
 export async function updateProjectBudget(projectId: string, amount: number): Promise<void> {
@@ -95,9 +98,12 @@ export async function addProjectMember(member: ProjectMember): Promise<void> {
 }
 
 export async function getProjectMember(projectId: string, userId: string): Promise<ProjectMember | null> {
+  console.log("Getting project member:", { projectId, userId });
   const key = createKey(["project_member", projectId, userId]);
-  const result = await kv.get<ProjectMember>(key);
-  return result.value;
+  console.log("Using key:", key);
+  const member = await kv.get<ProjectMember>(key);
+  console.log("Found member:", member);
+  return member.value;
 }
 
 export async function getProjectMembers(projectId: string): Promise<ProjectMember[]> {
@@ -135,41 +141,24 @@ export async function updateProjectInvitation(invitation: ProjectInvitation): Pr
 }
 
 // Time entry operations
-export async function createTimeEntry(entry: Omit<TimeEntry, "id" | "createdAt" | "updatedAt">): Promise<TimeEntry> {
-  const now = new Date().toISOString();
-  const id = crypto.randomUUID();
-  const timeEntry: TimeEntry = {
-    ...entry,
-    id,
-    status: "PENDING",
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const timeKey = ["time", id];
-  const userIndexKey = ["time_user", entry.userId, entry.date, id];
-  const projectIndexKey = ["time_project", entry.projectId, entry.date, id];
-
-  console.log("Creating time entry:", {
-    entry: timeEntry,
-    timeKey,
-    userIndexKey,
-    projectIndexKey,
-  });
-
-  const ok = await kv.atomic()
-    .set(timeKey, timeEntry)
-    .set(userIndexKey, { timeEntryId: id })
-    .set(projectIndexKey, { timeEntryId: id })
-    .commit();
-
-  console.log("Time entry creation result:", ok);
-
-  if (!ok.ok) {
+export async function createTimeEntry(entry: TimeEntry): Promise<TimeEntry> {
+  const atomic = kv.atomic();
+  
+  // Main entry
+  atomic.set(createKey(["time", entry.id]), entry);
+  
+  // User index
+  atomic.set(createKey(["time_user", entry.userId, entry.date, entry.id]), { entryId: entry.id });
+  
+  // Project index
+  atomic.set(createKey(["time_project", entry.projectId, entry.date, entry.id]), { entryId: entry.id });
+  
+  const result = await atomic.commit();
+  if (!result.ok) {
     throw new Error("Failed to create time entry");
   }
-
-  return timeEntry;
+  
+  return entry;
 }
 
 export async function getTimeEntriesByUser(userId: string, startDate: Date, endDate: Date): Promise<TimeEntry[]> {
@@ -260,7 +249,8 @@ export async function getAuthToken(userId: string, token: string): Promise<AuthT
 }
 
 export async function deleteAuthToken(userId: string, token: string): Promise<void> {
-  await kv.delete(createKey(["auth", userId, token]));
+  const tokenKey = createKey(["auth", userId, token]);
+  await kv.delete(tokenKey);
 }
 
 // Pay period operations
@@ -416,139 +406,159 @@ export async function updateProjectMemberFinancials(
 
 // Active timer operations
 export async function startTimer(timer: Partial<ActiveTimer>): Promise<ActiveTimer> {
-  // Check if user already has an active timer
-  const existingTimer = await getActiveTimerByUser(timer.userId!);
-  if (existingTimer) {
-    throw new Error("User already has an active timer");
-  }
-
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  
   const newTimer: ActiveTimer = {
-    id: crypto.randomUUID(),
+    id,
     userId: timer.userId!,
     projectId: timer.projectId!,
     description: timer.description || "",
-    startedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    startedAt: now,
+    updatedAt: now,
   };
-
-  // Use single key for user's active timer
-  const timerKey = createKey(["active_timer", newTimer.id]);
-  const userIndexKey = createKey(["active_timer_user", newTimer.userId]); // Single active timer per user
-  const projectIndexKey = createKey(["active_timer_project", newTimer.projectId, newTimer.id]);
-
-  console.log("Starting timer with keys:", { timerKey, userIndexKey, projectIndexKey });
-
+  
   const atomic = kv.atomic();
-  atomic
-    .set(timerKey, newTimer)
-    .set(userIndexKey, { timerId: newTimer.id })
-    .set(projectIndexKey, { timerId: newTimer.id });
-
+  
+  // Store timer
+  const timerKey = createKey(["active_timer", id]);
+  atomic.set(timerKey, newTimer);
+  
+  // Create user index
+  const userIndexKey = createKey(["active_timer_user", timer.userId!]);
+  atomic.set(userIndexKey, { timerId: id });
+  
+  // Create project index
+  const projectIndexKey = createKey(["active_timer_project", timer.projectId!, id]);
+  atomic.set(projectIndexKey, { timerId: id });
+  
+  console.log("Starting timer with keys:", { timerKey, userIndexKey, projectIndexKey });
+  
   const result = await atomic.commit();
-  if (!result.ok) throw new Error("Failed to start timer");
-
+  if (!result.ok) {
+    throw new Error("Failed to start timer");
+  }
+  
   return newTimer;
 }
 
 export async function stopTimer(timer: ActiveTimer): Promise<TimeEntry> {
-  const now = new Date().toISOString();
-  const duration = (new Date(now).getTime() - new Date(timer.startedAt).getTime()) / 1000 / 60 / 60; // Convert to hours
-
-  // Get project member to calculate cost impact
+  const now = new Date();
+  const startTime = new Date(timer.startedAt);
+  const hours = (now.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+  
+  // Get project member for hourly rate
   const member = await getProjectMember(timer.projectId, timer.userId);
   if (!member) {
     throw new Error("User is not a member of this project");
   }
-
+  
   const timeEntry: TimeEntry = {
     id: crypto.randomUUID(),
     projectId: timer.projectId,
     userId: timer.userId,
     description: timer.description,
-    hours: duration,
-    costImpact: duration * member.hourlyRate,
+    hours,
+    costImpact: hours * member.hourlyRate,
     date: timer.startedAt,
-    status: "PENDING",
-    createdAt: now,
-    updatedAt: now,
+    isActive: false,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
   };
-
-  await createTimeEntry(timeEntry);
+  
+  const atomic = kv.atomic();
+  
+  // Create time entry
+  const timeKey = createKey(["time", timeEntry.id]);
+  atomic.set(timeKey, timeEntry);
+  
+  // Create user index
+  const userIndexKey = createKey(["time_user", timeEntry.userId, timeEntry.date, timeEntry.id]);
+  atomic.set(userIndexKey, { entryId: timeEntry.id });
+  
+  // Create project index
+  const projectIndexKey = createKey(["time_project", timeEntry.projectId, timeEntry.date, timeEntry.id]);
+  atomic.set(projectIndexKey, { entryId: timeEntry.id });
+  
+  // Delete timer and indexes
+  const timerKey = createKey(["active_timer", timer.id]);
+  const timerUserIndexKey = createKey(["active_timer_user", timer.userId]);
+  const timerProjectIndexKey = createKey(["active_timer_project", timer.projectId, timer.id]);
+  
+  atomic
+    .delete(timerKey)
+    .delete(timerUserIndexKey)
+    .delete(timerProjectIndexKey);
+  
+  console.log("Atomic operation result:", await atomic.commit());
+  
   return timeEntry;
 }
 
 export async function getActiveTimerByUser(userId: string): Promise<ActiveTimer | null> {
-  const userIndexKey = createKey(["active_timer_user", userId]);
-  console.log("Getting active timer for user:", userIndexKey);
-  
-  const indexEntry = await kv.get<{ timerId: string }>(userIndexKey);
+  const indexEntry = await kv.get<{ timerId: string }>(createKey(["active_timer_user", userId]));
   console.log("Index entry:", indexEntry);
   
-  if (indexEntry.value) {
-    const timer = await kv.get<ActiveTimer>(createKey(["active_timer", indexEntry.value.timerId]));
-    console.log("Timer:", timer);
-    return timer.value;
-  }
+  if (!indexEntry.value) return null;
   
-  return null;
+  const timer = await kv.get<ActiveTimer>(createKey(["active_timer", indexEntry.value.timerId]));
+  console.log("Timer:", timer);
+  
+  return timer.value;
 }
 
 export async function getActiveTimersByProject(projectId: string): Promise<ActiveTimer[]> {
   const prefix = createKey(["active_timer_project", projectId]);
   const timers: ActiveTimer[] = [];
   
-  for await (const entry of kv.list<ActiveTimerProjectIndex>({ prefix })) {
-    const timer = await kv.get<ActiveTimer>(createKey(["active_timer", entry.value.timerId]));
-    if (timer.value) {
-      timers.push(timer.value);
+  for await (const entry of kv.list<{ timerId: string }>({ prefix })) {
+    if (entry.value) {
+      const timer = await kv.get<ActiveTimer>(createKey(["active_timer", entry.value.timerId]));
+      if (timer.value) {
+        timers.push(timer.value);
+      }
     }
   }
   
   return timers;
 }
 
-export async function createProjectMember(member: Omit<ProjectMember, "id">): Promise<ProjectMember> {
-  const now = new Date().toISOString();
-  const newMember: ProjectMember = {
-    ...member,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const ok = await kv.set(["project_member", member.projectId, member.userId], newMember);
-  if (!ok) {
+export async function createProjectMember(member: ProjectMember): Promise<ProjectMember> {
+  console.log("Creating project member:", member);
+  const atomic = kv.atomic();
+  
+  // Store member
+  const memberKey = createKey(["project_member", member.projectId, member.userId]);
+  atomic.set(memberKey, member);
+  
+  // Create member index
+  const memberIndexKey = createKey(["project_member_index", member.projectId, member.role, member.userId]);
+  atomic.set(memberIndexKey, { userId: member.userId, role: member.role });
+  
+  // Create owner index if member is owner
+  if (member.role === ProjectRole.OWNER) {
+    const ownerKey = createKey(["project_owner", member.userId, member.projectId]);
+    atomic.set(ownerKey, { projectId: member.projectId });
+  }
+  
+  console.log("Setting member with keys:", { memberKey, memberIndexKey });
+  
+  const result = await atomic.commit();
+  console.log("Member creation result:", result);
+  if (!result.ok) {
     throw new Error("Failed to create project member");
   }
-
-  return newMember;
+  
+  return member;
 }
 
 export async function getTimeEntryById(id: string): Promise<TimeEntry | null> {
-  const key = ["time", id];
+  console.log("Getting time entry by ID:", id);
+  const key = createKey(["time", id]);
+  console.log("Using key:", key);
   const entry = await kv.get<TimeEntry>(key);
+  console.log("Found entry:", entry);
   return entry.value;
-}
-
-export async function completeTimeEntry(id: string): Promise<TimeEntry> {
-  const key = ["time", id];
-  const entry = await kv.get<TimeEntry>(key);
-  if (!entry.value) {
-    throw new Error("Time entry not found");
-  }
-
-  const now = new Date().toISOString();
-  const updatedEntry = {
-    ...entry.value,
-    status: "COMPLETED",
-    updatedAt: now,
-  };
-
-  const ok = await kv.set(key, updatedEntry);
-  if (!ok) {
-    throw new Error("Failed to complete time entry");
-  }
-
-  return updatedEntry;
 }
 
 export async function distributeProjectProfits(projectId: string): Promise<{ distributedAmount: number }> {
@@ -562,50 +572,122 @@ export async function distributeProjectProfits(projectId: string): Promise<{ dis
     throw new Error("Profit sharing is not enabled for this project");
   }
 
-  // Get all completed time entries for the project
-  const prefix = ["time_project", projectId];
+  // Get all time entries for the project
+  const prefix = createKey(["time_project", projectId]);
   const entries = await kv.list<TimeEntry>({ prefix });
   
   let totalHours = 0;
-  const completedEntries: TimeEntry[] = [];
+  const timeEntries: TimeEntry[] = [];
 
   for await (const entry of entries) {
-    if (entry.value.status === "COMPLETED") {
-      totalHours += entry.value.hours;
-      completedEntries.push(entry.value);
-    }
+    totalHours += entry.value.hours;
+    timeEntries.push(entry.value);
   }
 
   if (totalHours === 0) {
-    throw new Error("No completed time entries found");
+    throw new Error("No time entries found");
   }
 
-  // Calculate profit pool (10% of project budget)
-  const profitPool = project.budget * 0.1;
-  const hourlyProfit = profitPool / totalHours;
+  // Calculate total profit to distribute
+  const totalProfit = timeEntries.reduce((sum, entry) => sum + entry.costImpact, 0) * project.profitSharingPercentage;
 
-  // Distribute profits to team members
-  for (const entry of completedEntries) {
-    const profit = entry.hours * hourlyProfit;
-    const member = await getProjectMember(projectId, entry.userId);
-    if (member) {
-      await kv.set(["profit", entry.id], {
-        timeEntryId: entry.id,
-        userId: entry.userId,
-        projectId,
-        amount: profit,
-        distributedAt: new Date().toISOString(),
-      });
-    }
+  // Distribute profits based on hours worked
+  const distributions: { userId: string; amount: number }[] = timeEntries.map(entry => ({
+    userId: entry.userId,
+    amount: (entry.hours / totalHours) * totalProfit,
+  }));
+
+  // Create earnings records
+  const payPeriodId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const atomic = kv.atomic();
+  for (const dist of distributions) {
+    const earnings: Earnings = {
+      id: crypto.randomUUID(),
+      userId: dist.userId,
+      projectId,
+      payPeriodId,
+      regularHours: 0,
+      regularEarnings: 0,
+      bonusEarnings: dist.amount,
+      totalEarnings: dist.amount,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const key = createKey(["earnings", earnings.id]);
+    const userIndexKey = createKey(["earnings_user", earnings.userId, earnings.payPeriodId, earnings.id]);
+    const projectIndexKey = createKey(["earnings_project", earnings.projectId, earnings.payPeriodId, earnings.id]);
+
+    atomic
+      .set(key, earnings)
+      .set(userIndexKey, { earningsId: earnings.id })
+      .set(projectIndexKey, { earningsId: earnings.id });
   }
 
-  // Update project bonus pool
-  const updatedProject = {
-    ...project,
-    bonusPool: profitPool,
+  const result = await atomic.commit();
+  if (!result.ok) {
+    throw new Error("Failed to distribute profits");
+  }
+
+  return { distributedAmount: totalProfit };
+}
+
+export async function updateProject(project: Project): Promise<void> {
+  const key = createKey(["project", project.id]);
+  const existing = await kv.get<Project>(key);
+  if (!existing.value) {
+    throw new Error("Project not found");
+  }
+  await kv.set(key, project);
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  const key = createKey(["project", projectId]);
+  const existing = await kv.get<Project>(key);
+  if (!existing.value) {
+    throw new Error("Project not found");
+  }
+  await kv.delete(key);
+  
+  // Also delete owner index
+  const ownerKey = createKey(["project_owner", existing.value.ownerId, projectId]);
+  await kv.delete(ownerKey);
+}
+
+export async function completeTimeEntry(timeEntryId: string): Promise<TimeEntry> {
+  const timeEntry = await getTimeEntryById(timeEntryId);
+  if (!timeEntry) {
+    throw new Error("Time entry not found");
+  }
+
+  const member = await getProjectMember(timeEntry.projectId, timeEntry.userId);
+  if (!member) {
+    throw new Error("User is not a member of this project");
+  }
+
+  // Calculate final cost impact based on hours and rate
+  const costImpact = timeEntry.hours * member.hourlyRate;
+
+  // Update the time entry
+  const updatedEntry: TimeEntry = {
+    ...timeEntry,
+    isActive: false,
+    costImpact,
     updatedAt: new Date().toISOString(),
   };
-  await kv.set(["project", projectId], updatedProject);
 
-  return { distributedAmount: profitPool };
+  const key = createKey(["timeEntries", timeEntryId]);
+  await kv.set(key, updatedEntry);
+
+  // Update project budget
+  const project = await getProjectById(timeEntry.projectId);
+  if (!project) {
+    throw new Error("Project not found");
+  }
+
+  await updateProjectBudget(project.id, -costImpact);
+
+  return updatedEntry;
 } 

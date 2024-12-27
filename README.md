@@ -1,252 +1,128 @@
-# Time Tracking & Profit Sharing API
+# Project Time Tracker API
 
-A Deno-based API for tracking time, managing projects, and distributing profits among team members.
+A modern, efficient time tracking API built with Deno, featuring project management, time tracking, and financial operations.
+
+## Features
+
+- 👥 User Authentication & Management
+- 📊 Project Management
+- ⏱️ Time Tracking & Timer System
+- 💰 Financial Operations & Budgeting
+- 📈 Profit Sharing & Distribution
+- 🔄 Real-time Timer Updates
+
+## Tech Stack
+
+- [Deno](https://deno.land/) - A modern runtime for JavaScript and TypeScript
+- [Deno KV](https://deno.land/manual/runtime/kv) - Built-in key-value store
+- [Deno Standard Library](https://deno.land/std) - Standard library modules
+
+## Project Structure
+
+```
+/api
+  /handlers        # Route handlers for different features
+    - auth.ts      # Authentication handlers
+    - projects.ts  # Project management handlers
+    - timers.ts    # Time tracking handlers
+    - financials.ts # Financial operations handlers
+    - timeEntries.ts # Time entry handlers
+    - budget.ts    # Budget management handlers
+  /middleware
+    - auth.ts      # Authentication middleware
+  /utils
+    - response.ts  # Response formatting utilities
+  - router.ts      # Main API router with CORS and prefixing
+
+/db.ts            # Database operations using Deno KV
+/types.ts         # TypeScript interfaces and types
+/tests           # Test files for each module
+```
 
 ## Getting Started
 
-### Prerequisites
-- Deno 1.x or higher
-- Deno KV enabled
+1. Install Deno:
+   ```bash
+   curl -fsSL https://deno.land/x/install/install.sh | sh
+   ```
 
-### Installation
-```bash
-# Clone the repository
-git clone [repository-url]
+2. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd <project-directory>
+   ```
 
-# Navigate to project directory
-cd [project-directory]
+3. Start the server:
+   ```bash
+   deno task start
+   ```
 
-# Start the development server
-deno task dev
-```
+The server will start on `http://localhost:8000` by default.
 
-## API Documentation
+## Environment Variables
+
+- `PORT` - Server port (default: 8000)
+- `DENO_DEPLOYMENT_ID` - Set by Deno Deploy in production
+
+## API Endpoints
 
 ### Authentication
-All authenticated endpoints require a Bearer token in the Authorization header:
-```
-Authorization: Bearer <userId>:<authToken>
-```
-
-### Users
-
-#### Create User
-```http
-POST /api/auth/register
-Content-Type: application/json
-
-{
-  "email": "user@example.com",
-  "password": "password123",
-  "firstName": "John",
-  "lastName": "Doe",
-  "hourlyRate": 100
-}
-```
-
-#### Login
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "email": "user@example.com",
-  "password": "password123"
-}
-```
-
-Response:
-```json
-{
-  "success": true,
-  "data": {
-    "token": "auth-token-here",
-    "user": {
-      "id": "user-id",
-      "email": "user@example.com",
-      "firstName": "John",
-      "lastName": "Doe",
-      "hourlyRate": 100
-    }
-  }
-}
-```
+- `POST /api/auth/register` - Register a new user
+- `POST /api/auth/login` - Login user
+- `POST /api/auth/logout` - Logout user
 
 ### Projects
-
-#### Create Project
-```http
-POST /projects
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "name": "Project Name",
-  "description": "Project Description",
-  "budget": 10000,
-  "clientId": "client-id",
-  "profitSharingEnabled": true
-}
-```
-
-#### Invite User to Project
-```http
-POST /projects/invite
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "projectId": "project-id",
-  "email": "user@example.com",
-  "role": "MEMBER",
-  "hourlyRate": 80
-}
-```
-
-#### Accept Project Invitation
-```http
-POST /projects/invitations/respond
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "invitationId": "invitation-id",
-  "accept": true
-}
-```
+- `POST /api/projects` - Create a project
+- `GET /api/projects/:id` - Get project details
+- `PUT /api/projects/:id` - Update project
+- `GET /api/projects/:id/members` - Get project members
+- `POST /api/projects/:id/invite` - Invite member to project
 
 ### Time Tracking
+- `POST /api/timers/start` - Start a timer
+- `POST /api/timers/stop` - Stop active timer
+- `GET /api/timers/active` - Get active timer
+- `GET /api/projects/:id/timers` - Get project timers
 
-#### Start Timer
-```http
-POST /api/timers/start
-Authorization: Bearer <token>
-Content-Type: application/json
+### Time Entries
+- `POST /api/time-entries` - Create time entry
+- `GET /api/time-entries` - Get time entries
+- `GET /api/time-entries/:id` - Get specific time entry
+- `POST /api/time-entries/:id/complete` - Complete time entry
 
-{
-  "projectId": "project-id",
-  "description": "Task description"
-}
+### Financial Operations
+- `POST /api/pay-periods` - Create pay period
+- `GET /api/pay-periods` - Get pay periods
+- `GET /api/users/:id/financials` - Get user financials
+- `GET /api/projects/:id/financials` - Get project financials
+- `POST /api/projects/:id/distribute-profits` - Distribute project profits
+
+## Development
+
+### Running Tests
+```bash
+deno test
 ```
 
-Response:
-```json
-{
-  "success": true,
-  "data": {
-    "id": "timer-id",
-    "projectId": "project-id",
-    "userId": "user-id",
-    "description": "Task description",
-    "startedAt": "2024-12-27T02:19:33.640Z"
-  }
-}
+### Formatting Code
+```bash
+deno fmt
 ```
 
-#### Stop Timer
-```http
-POST /api/timers/stop
-Authorization: Bearer <token>
+### Linting
+```bash
+deno lint
 ```
 
-Response:
-```json
-{
-  "success": true,
-  "data": {
-    "id": "time-entry-id",
-    "projectId": "project-id",
-    "userId": "user-id",
-    "description": "Task description",
-    "hours": 0.034,
-    "costImpact": 3.43,
-    "date": "2024-12-27T02:19:33.640Z"
-  }
-}
-```
+## Deployment
 
-#### Get Active Timer Status
-```http
-GET /timer/status
-Authorization: Bearer <token>
-```
+This project is designed to be deployed on Deno Deploy. Follow these steps:
 
-#### Get Project Active Timers
-```http
-GET /timer/project?projectId=project-id
-Authorization: Bearer <token>
-```
+1. Create a new project on [Deno Deploy](https://deno.com/deploy)
+2. Link your repository
+3. Configure environment variables
+4. Deploy!
 
-#### Get Time Entries
-```http
-GET /api/time-entries?startDate=2024-12-01&endDate=2024-12-31
-Authorization: Bearer <token>
-```
+## License
 
-### Financial Management
-
-#### Get User Financial Summary
-```http
-GET /api/financial/user-summary
-Authorization: Bearer <token>
-```
-
-#### Get Project Financial Summary
-```http
-GET /api/financial/project-summary/{projectId}
-Authorization: Bearer <token>
-```
-
-#### Distribute Project Profits
-```http
-POST /projects/profits/distribute
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "projectId": "project-id",
-  "amount": 1000
-}
-```
-
-Response:
-```json
-{
-  "success": true,
-  "data": {
-    "distributions": [
-      {
-        "userId": "user-id",
-        "amount": 502.79,
-        "percentage": 50.28
-      }
-    ]
-  }
-}
-```
-
-## Error Handling
-
-All endpoints return errors in the following format:
-```json
-{
-  "success": false,
-  "error": "Error message here",
-  "timestamp": "2024-12-27T02:21:37.175Z"
-}
-```
-
-Common HTTP status codes:
-- 200: Success
-- 400: Bad Request
-- 401: Unauthorized
-- 403: Forbidden
-- 404: Not Found
-- 500: Internal Server Error
-
-## Security Considerations
-
-1. All passwords are hashed before storage
-2. Authentication tokens expire after 24 hours
-3. Project owners can view team member financials only for their projects
-4. Users can only view their own financial data unless they have project owner permissions 
+MIT License - see LICENSE file for details 

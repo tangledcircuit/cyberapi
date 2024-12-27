@@ -67,6 +67,7 @@ interface Project {
   description: string;
   budget: number;
   profitSharingEnabled: boolean;
+  profitSharingPercentage: number;
 }
 
 interface TimeEntry {
@@ -116,6 +117,7 @@ Deno.test({
         description: "A project to test team collaboration",
         budget: 10000,
         profitSharingEnabled: true,
+        profitSharingPercentage: 0.1,
       };
 
       const { response, data } = await makeRequest<Project>(

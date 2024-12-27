@@ -1,9 +1,9 @@
 {
   "tasks": {
-    "dev": "deno run --allow-net --allow-env --unstable-kv api.ts",
-    "cache": "deno cache api.ts",
+    "dev": "deno run --allow-net --allow-env --unstable-kv main.ts",
+    "cache": "deno cache main.ts",
     "test": "DENO_ENV=test deno test --allow-net --allow-env --unstable-kv tests/",
-    "start": "deno run --allow-net --allow-env --unstable-kv api.ts"
+    "start": "deno run --allow-net --allow-env --unstable-kv main.ts"
   },
   "imports": {
     "std/": "https://deno.land/std@0.201.0/"

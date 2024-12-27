@@ -48,6 +48,7 @@ export interface Project {
   ownerId: string;
   status: ProjectStatus;
   profitSharingEnabled: boolean;
+  profitSharingPercentage: number;
   bonusPool: number;
   createdAt: string;
   updatedAt: string;
@@ -88,12 +89,16 @@ export interface TimeEntry {
   projectId: string;
   userId: string;
   description: string;
+  date: string;
   hours: number;
   costImpact: number;
-  date: string;
-  status: "PENDING" | "COMPLETED";
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  currentStats?: {
+    hours: number;
+    earnings: number;
+  };
 }
 
 // Budget and profit sharing types
